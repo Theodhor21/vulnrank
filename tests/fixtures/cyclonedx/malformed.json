@@ -1,0 +1,25 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "metadata": { "component": { "name": "broken-app:0.1" } },
+  "components": [
+    { "bom-ref": "pkg:apk/alpine/zlib@1.2.13-r0", "name": "zlib", "version": "1.2.13-r0" },
+    { "bom-ref": "pkg:apk/alpine/nameless@1.0", "version": "1.0" },
+    "not a component"
+  ],
+  "vulnerabilities": [
+    {
+      "id": "CVE-2023-1000",
+      "ratings": [{ "source": { "name": "nvd" }, "severity": "medium" }],
+      "affects": [{ "ref": "pkg:apk/alpine/zlib@1.2.13-r0" }]
+    },
+    { "id": "CVE-2023-1001" },
+    { "id": "CVE-2023-1002", "affects": [{ "ref": "pkg:apk/alpine/missing@9.9" }] },
+    {
+      "id": "CVE-2023-1003",
+      "ratings": [{ "source": { "name": "nvd" }, "score": 11.0, "method": "CVSSv31" }],
+      "affects": [{ "ref": "pkg:apk/alpine/zlib@1.2.13-r0" }]
+    },
+    "junk"
+  ]
+}

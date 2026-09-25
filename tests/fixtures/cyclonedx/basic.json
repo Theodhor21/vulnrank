@@ -1,0 +1,118 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "version": 1,
+  "metadata": {
+    "component": {
+      "bom-ref": "demo-app-ref",
+      "type": "container",
+      "name": "demo-app:1.0"
+    }
+  },
+  "components": [
+    {
+      "bom-ref": "pkg:deb/debian/openssl@3.0.9-1?arch=amd64&distro=debian-12.1",
+      "type": "library",
+      "name": "openssl",
+      "version": "3.0.9-1",
+      "purl": "pkg:deb/debian/openssl@3.0.9-1?arch=amd64&distro=debian-12.1"
+    },
+    {
+      "bom-ref": "pkg:deb/debian/libssl3@3.0.9-1?arch=amd64&distro=debian-12.1",
+      "type": "library",
+      "name": "libssl3",
+      "version": "3.0.9-1",
+      "purl": "pkg:deb/debian/libssl3@3.0.9-1?arch=amd64&distro=debian-12.1"
+    },
+    {
+      "bom-ref": "python-app-ref",
+      "type": "application",
+      "name": "Python",
+      "components": [
+        {
+          "bom-ref": "pkg:pypi/requests@2.25.0",
+          "type": "library",
+          "name": "requests",
+          "version": "2.25.0",
+          "purl": "pkg:pypi/requests@2.25.0"
+        },
+        {
+          "bom-ref": "pkg:pypi/urllib3@1.26.0",
+          "type": "library",
+          "name": "urllib3",
+          "version": "1.26.0",
+          "purl": "pkg:pypi/urllib3@1.26.0"
+        }
+      ]
+    }
+  ],
+  "vulnerabilities": [
+    {
+      "id": "CVE-2023-0001",
+      "source": { "name": "debian" },
+      "ratings": [
+        { "source": { "name": "debian" }, "severity": "high" },
+        {
+          "source": { "name": "nvd" },
+          "score": 7.5,
+          "severity": "high",
+          "method": "CVSSv31",
+          "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+        }
+      ],
+      "recommendation": "Upgrade openssl to version 3.0.11-1~deb12u1",
+      "affects": [
+        {
+          "ref": "pkg:deb/debian/openssl@3.0.9-1?arch=amd64&distro=debian-12.1",
+          "versions": [{ "version": "3.0.9-1", "status": "affected" }]
+        }
+      ]
+    },
+    {
+      "id": "CVE-2023-0002",
+      "source": { "name": "debian" },
+      "ratings": [
+        { "source": { "name": "debian" }, "severity": "critical" },
+        { "source": { "name": "nvd" }, "score": 9.8, "severity": "critical", "method": "CVSSv31" },
+        { "source": { "name": "redhat" }, "score": 8.1, "severity": "high", "method": "CVSSv31" }
+      ],
+      "recommendation": "Upgrade libssl3 to version 3.0.12-1; Upgrade openssl to version 3.0.12-1",
+      "affects": [
+        {
+          "ref": "pkg:deb/debian/libssl3@3.0.9-1?arch=amd64&distro=debian-12.1",
+          "versions": [{ "version": "3.0.9-1", "status": "affected" }]
+        },
+        {
+          "ref": "pkg:deb/debian/openssl@3.0.9-1?arch=amd64&distro=debian-12.1",
+          "versions": [{ "version": "3.0.9-1", "status": "affected" }]
+        }
+      ]
+    },
+    {
+      "id": "CVE-2023-0003",
+      "source": { "name": "ghsa" },
+      "ratings": [
+        { "source": { "name": "ghsa" }, "score": 5.3, "severity": "medium", "method": "CVSSv31" },
+        { "source": { "name": "nvd" }, "score": 6.9, "severity": "medium", "method": "CVSSv4" }
+      ],
+      "affects": [
+        {
+          "ref": "pkg:pypi/requests@2.25.0",
+          "versions": [{ "version": "2.25.0", "status": "affected" }]
+        }
+      ]
+    },
+    {
+      "id": "GHSA-aaaa-bbbb-cccc",
+      "source": { "name": "ghsa" },
+      "ratings": [{ "source": { "name": "ghsa" }, "severity": "low" }],
+      "recommendation": "Upgrade urllib3 to version 1.26.18",
+      "affects": [
+        {
+          "ref": "pkg:pypi/urllib3@1.26.0",
+          "versions": [{ "version": "1.26.0", "status": "affected" }]
+        }
+      ]
+    }
+  ]
+}

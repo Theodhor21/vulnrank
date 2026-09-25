@@ -1,0 +1,29 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "broken-app:0.1",
+  "Results": [
+    "not a result object",
+    {
+      "Target": "broken-app:0.1 (alpine 3.19)",
+      "Type": "alpine",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2023-1000",
+          "PkgName": "zlib",
+          "InstalledVersion": "1.2.13-r0",
+          "Severity": "MEDIUM"
+        },
+        { "VulnerabilityID": "CVE-2023-1001", "InstalledVersion": "1.0" },
+        { "VulnerabilityID": "CVE-23-1002", "PkgName": "musl", "InstalledVersion": "1.2.4" },
+        {
+          "VulnerabilityID": "CVE-2023-1003",
+          "PkgName": "busybox",
+          "InstalledVersion": "1.36.1",
+          "CVSS": { "nvd": { "V3Score": 12.0 } }
+        },
+        42
+      ]
+    },
+    { "Target": "no-vulns", "Vulnerabilities": null }
+  ]
+}

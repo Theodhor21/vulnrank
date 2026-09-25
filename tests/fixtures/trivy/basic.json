@@ -1,0 +1,98 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "demo-app:1.0",
+  "ArtifactType": "container_image",
+  "Results": [
+    {
+      "Target": "demo-app:1.0 (debian 12.1)",
+      "Class": "os-pkgs",
+      "Type": "debian",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2023-0001",
+          "PkgName": "openssl",
+          "PkgIdentifier": {
+            "PURL": "pkg:deb/debian/openssl@3.0.9-1?arch=amd64&distro=debian-12.1"
+          },
+          "InstalledVersion": "3.0.9-1",
+          "FixedVersion": "3.0.11-1~deb12u1",
+          "Status": "fixed",
+          "SeveritySource": "debian",
+          "Severity": "HIGH",
+          "CVSS": {
+            "nvd": {
+              "V3Vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+              "V3Score": 7.5
+            }
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2023-0002",
+          "PkgName": "libssl3",
+          "PkgIdentifier": {
+            "PURL": "pkg:deb/debian/libssl3@3.0.9-1?arch=amd64&distro=debian-12.1"
+          },
+          "InstalledVersion": "3.0.9-1",
+          "FixedVersion": "3.0.12-1",
+          "Status": "fixed",
+          "SeveritySource": "debian",
+          "Severity": "CRITICAL",
+          "CVSS": {
+            "nvd": { "V3Score": 9.8 },
+            "redhat": { "V3Score": 8.1 }
+          }
+        },
+        {
+          "VulnerabilityID": "CVE-2023-0002",
+          "PkgName": "openssl",
+          "PkgIdentifier": {
+            "PURL": "pkg:deb/debian/openssl@3.0.9-1?arch=amd64&distro=debian-12.1"
+          },
+          "InstalledVersion": "3.0.9-1",
+          "FixedVersion": "3.0.12-1",
+          "Status": "fixed",
+          "SeveritySource": "debian",
+          "Severity": "CRITICAL",
+          "CVSS": {
+            "nvd": { "V3Score": 9.8 },
+            "redhat": { "V3Score": 8.1 }
+          }
+        }
+      ]
+    },
+    {
+      "Target": "Python",
+      "Class": "lang-pkgs",
+      "Type": "python-pkg",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2023-0003",
+          "PkgName": "requests",
+          "PkgIdentifier": { "PURL": "pkg:pypi/requests@2.25.0" },
+          "InstalledVersion": "2.25.0",
+          "Status": "affected",
+          "SeveritySource": "ghsa",
+          "Severity": "MEDIUM",
+          "CVSS": {
+            "ghsa": { "V3Score": 5.3 },
+            "nvd": { "V40Score": 6.9 }
+          }
+        },
+        {
+          "VulnerabilityID": "GHSA-aaaa-bbbb-cccc",
+          "PkgName": "urllib3",
+          "PkgIdentifier": { "PURL": "pkg:pypi/urllib3@1.26.0" },
+          "InstalledVersion": "1.26.0",
+          "FixedVersion": "1.26.18",
+          "Status": "fixed",
+          "Severity": "LOW"
+        }
+      ]
+    },
+    {
+      "Target": "Dockerfile",
+      "Class": "config",
+      "Type": "dockerfile"
+    }
+  ]
+}
