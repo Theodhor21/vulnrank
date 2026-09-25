@@ -6,11 +6,22 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+dist/
+build/
+*.egg-info/
+
+# Tooling caches and coverage
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# vulnrank local enrichment cache
+.vulnrank-cache/
+
+# Secrets and editors
 .env
-
-# Node
-node_modules/
-
-# Editors
 .vscode/
 .idea/
