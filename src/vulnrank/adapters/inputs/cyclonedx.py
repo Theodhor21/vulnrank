@@ -13,15 +13,13 @@ from typing import Literal
 
 from pydantic import Field, ValidationError
 
+from vulnrank.adapters._raw import RawModel, describe, read_json
 from vulnrank.adapters.inputs._common import (
     CvssCandidate,
-    RawModel,
-    describe,
     ecosystem_from_purl,
     is_cve,
     parse_severity,
     pick_cvss,
-    read_json,
 )
 from vulnrank.domain.models import Component, Finding, Severity, Vulnerability
 from vulnrank.ports.sources import SourceError

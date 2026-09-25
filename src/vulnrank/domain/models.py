@@ -105,6 +105,16 @@ class Asset(DomainModel):
     internet_exposed: bool = False
 
 
+class EpssScore(DomainModel):
+    score: Probability
+    percentile: Probability
+
+
+class KevEntry(DomainModel):
+    cve_id: CveId
+    date_added: date
+
+
 class Enrichment(DomainModel):
     epss_score: Probability | None = None
     epss_percentile: Probability | None = None

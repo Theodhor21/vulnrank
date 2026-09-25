@@ -1,0 +1,38 @@
+{
+  "title": "CISA Catalog of Known Exploited Vulnerabilities",
+  "catalogVersion": "2026.09.24",
+  "dateReleased": "2026-09-24T17:00:00.000Z",
+  "count": 3,
+  "vulnerabilities": [
+    {
+      "cveID": "CVE-2023-0001",
+      "vendorProject": "ExampleVendor",
+      "product": "ExampleProduct",
+      "vulnerabilityName": "ExampleProduct Remote Code Execution",
+      "dateAdded": "2024-01-10",
+      "shortDescription": "Hand-written test entry.",
+      "requiredAction": "Apply updates per vendor instructions.",
+      "dueDate": "2024-01-31",
+      "knownRansomwareCampaignUse": "Unknown",
+      "notes": ""
+    },
+    {
+      "cveID": "CVE-2023-0005",
+      "vendorProject": "ExampleVendor",
+      "product": "OtherProduct",
+      "vulnerabilityName": "OtherProduct Path Traversal",
+      "dateAdded": "2025-06-02",
+      "shortDescription": "Hand-written test entry.",
+      "requiredAction": "Apply updates per vendor instructions.",
+      "dueDate": "2025-06-23",
+      "knownRansomwareCampaignUse": "Known",
+      "notes": ""
+    },
+    {
+      "cveID": "CVE-2023-0006",
+      "vendorProject": "ExampleVendor",
+      "product": "Broken",
+      "dateAdded": "not-a-date"
+    }
+  ]
+}

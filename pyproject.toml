@@ -8,6 +8,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Theodhor Zhobro", email = "dhori98@gmail.com" }]
 requires-python = ">=3.12"
 dependencies = [
+    "httpx>=0.28.1",
     "pydantic>=2.13.5",
 ]
 
