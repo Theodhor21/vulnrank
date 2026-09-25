@@ -11,7 +11,7 @@ asset context, then ranks them into priority tiers P1–P4 using transparent, de
 ## Roadmap
 
 - [x] Project scaffold (uv, ruff, pyright strict, pytest, CI)
-- [ ] Domain models and rule-based scoring
+- [x] Domain models and rule-based scoring
 - [ ] Input adapters: Trivy JSON, CycloneDX
 - [ ] Enrichment: EPSS and CISA KEV, with caching and offline mode
 - [ ] CLI with table, JSON and Markdown output and a CI gate

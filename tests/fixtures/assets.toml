@@ -1,0 +1,14 @@
+[scoring]
+p2_epss = 0.2
+
+[default_asset]
+criticality = "low"
+
+[[assets]]
+target = "shop-frontend:2.4"
+criticality = "critical"
+internet_exposed = true
+
+[[assets]]
+target = "batch-worker:1.0"
+criticality = "high"
