@@ -1,0 +1,36 @@
+name: vulnrank
+description: >-
+  Rank vulnerability scan findings by exploitation evidence (CISA KEV), likelihood (EPSS) and
+  asset context, with a reason for every decision.
+author: Theodhor Zhobro
+branding:
+  icon: shield
+  color: red
+
+inputs:
+  scan:
+    description: Trivy or Grype JSON report, or CycloneDX JSON SBOM.
+    required: true
+  args:
+    description: >-
+      Extra vulnrank options, e.g. "--assets assets.toml --fail-on P1 --format sarif
+      --output vulnrank.sarif". See `vulnrank --help`.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@v10.2.0
+
+    - name: Run vulnrank
+      shell: bash
+      # Inputs are passed through the environment, never pasted into the script.
+      env:
+        VULNRANK_SOURCE: ${{ github.action_path }}
+        VULNRANK_SCAN: ${{ inputs.scan }}
+        VULNRANK_ARGS: ${{ inputs.args }}
+      run: |
+        set -f  # split VULNRANK_ARGS into options, but never expand globs in it
+        # shellcheck disable=SC2086
+        uvx --from "$VULNRANK_SOURCE" vulnrank "$VULNRANK_SCAN" $VULNRANK_ARGS

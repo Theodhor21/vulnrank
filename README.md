@@ -83,7 +83,7 @@ uv run vulnrank examples/nginx-1.19.trivy.json
 On your own image, with [Trivy](https://trivy.dev/):
 
 ```sh
-trivy image --format json --output scan.json your-image:tag
+trivy image --format json --output scan.json your-image:tag   # or: grype your-image:tag -o json
 uv run vulnrank scan.json --assets assets.toml --top 20
 ```
 
@@ -96,10 +96,13 @@ uv run vulnrank scan.json --assets assets.toml --top 20
 | `--fail-on P1` | Exit with code 1 if any finding is at this tier or above: a CI gate |
 | `--strict` | Exit with code 2 if EPSS or KEV data could not be loaded, so a gate never passes blind |
 | `--target NAME` | Report findings under this name and match assets against it |
+| `--baseline FILE` | Compare with an earlier JSON report; `--fail-on` then counts only new or escalated findings |
+| `--vex FILE` | OpenVEX document; `not_affected` and `fixed` statements suppress findings |
+| `--ignore-file FILE` | A `.trivyignore` file; listed IDs are suppressed until their `exp:` date |
 | `--offline` | No network: use cached EPSS/KEV data, or local files via `--epss-file` / `--kev-file` |
 
-Input can be a Trivy JSON report or a CycloneDX JSON SBOM with vulnerabilities (UTF-8 or
-UTF-16); the format is detected automatically. Exit codes: `0` ok, `1` findings at or above
+Input can be a Trivy or Grype JSON report, or a CycloneDX JSON SBOM with vulnerabilities
+(UTF-8 or UTF-16); the format is detected automatically. Exit codes: `0` ok, `1` findings at or above
 `--fail-on`, `2` input, usage or internal error (a crash never exits with `1`).
 
 Asset entries in `assets.toml` match a scan target by exact name, then by name without tag or
@@ -135,9 +138,33 @@ Context changes the answer. Marking `nginx:1.19` as a critical, internet-exposed
 such a system anything with a 10% chance of exploitation is urgent. Every threshold can be
 tuned in the `[scoring]` section.
 
+## Accepting risk, on the record
+
+Not every finding needs a fix. vulnrank leaves a finding out of the ranking when someone has
+said why, and reports it separately with that reason (never silently):
+
+- **In the scan:** a CycloneDX `analysis` of `not_affected`, `false_positive` or `resolved`,
+  or Trivy's vendor status `not_affected`.
+- **VEX:** `--vex vex.json` applies [OpenVEX](https://github.com/openvex/spec) statements,
+  matched by advisory ID or alias and by package or image purl.
+- **Ignore files:** `--ignore-file .trivyignore` reads Trivy's format; the comment above an
+  ID becomes its reason, and `exp:2026-12-31` makes it expire.
+- **Rules in `assets.toml`:**
+
+  ```toml
+  [[ignore]]
+  package = "linux-libc-dev"           # or id = "CVE-...", optionally with target = "api-*"
+  reason = "kernel headers: containers run on the host kernel"
+  expires = 2026-12-31
+  ```
+
+Suppressed findings never trip `--fail-on`. Suppressing a finding that is in CISA KEV, or
+keeping a rule past its expiry date, produces a warning.
+
 ## Use it in CI
 
-Fail the build on P1 findings and publish every finding to GitHub code scanning:
+Fail the build on P1 findings and publish every finding to GitHub code scanning, using the
+vulnrank GitHub Action:
 
 ```yaml
 permissions:
@@ -145,16 +172,25 @@ permissions:
   security-events: write # to upload SARIF
 
 steps:
+  - uses: actions/checkout@v7
   - uses: aquasecurity/setup-trivy@v0.3.1
-  - uses: astral-sh/setup-uv@v10.2.0
   - run: trivy image --format json --output scan.json my-app:${{ github.sha }}
-  - run: >
-      uvx --from git+https://github.com/Theodhor21/vulnrank vulnrank scan.json
-      --assets assets.toml --format sarif --top 0 --output vulnrank.sarif --fail-on P1
+  - uses: Theodhor21/vulnrank@main
+    with:
+      scan: scan.json
+      args: --assets assets.toml --format sarif --top 0 --output vulnrank.sarif --fail-on P1
   - uses: github/codeql-action/upload-sarif@v4
     if: always() # upload results even when the gate fails
     with:
       sarif_file: vulnrank.sarif
+```
+
+An image with known debt would fail that gate forever. Keep the JSON report of your main
+branch and pass it as a baseline: then only **new** findings, or ones that became more
+urgent, fail the build, and SARIF marks alerts as new, updated or unchanged.
+
+```sh
+vulnrank scan.json --baseline main-report.json --fail-on P1
 ```
 
 In the SARIF output, tiers map onto GitHub's severity labels (P1 critical, P2 high, P3
@@ -173,7 +209,10 @@ EPSS/KEV-based risk score. vulnrank builds on the same signals and adds:
 - **SARIF severities that follow the tier**, so GitHub's Security tab sorts by exploit-aware
   priority rather than raw CVSS (Grype's SARIF uses CVSS for this).
 - **A fix plan:** "upgrade X to Y fixes N vulnerabilities", with split packages merged.
-- **A small, offline-capable post-processor** for Trivy and CycloneDX output you already have.
+- **Gating on what changed**, against a baseline report, and risk acceptance through VEX,
+  `.trivyignore` or rules with expiry dates, all reported rather than hidden.
+- **A small, offline-capable post-processor** for Trivy, Grype and CycloneDX output you
+  already have. vulnrank does its own EPSS and KEV lookups, so every input ranks the same way.
 
 Platforms such as [Dependency-Track](https://dependencytrack.org/) and
 [DefectDojo](https://www.defectdojo.org/) also track EPSS and KEV, with a server and database.
@@ -185,7 +224,7 @@ or service sits behind an interface.
 
 ```mermaid
 flowchart LR
-    scan[/"Trivy JSON<br/>CycloneDX SBOM"/] --> inputs["Input adapters"]
+    scan[/"Trivy or Grype JSON<br/>CycloneDX SBOM"/] --> inputs["Input adapters"]
     epss[("FIRST EPSS API<br/>or CSV export")] --> enrich["Enrichment adapters<br/>(24 h on-disk cache)"]
     kev[("CISA KEV feed<br/>or local copy")] --> enrich
 
@@ -215,14 +254,18 @@ every module in the core and fails if it imports an adapter or an I/O library.
 
 ## Engineering notes
 
-- **Tested without the network.** 429 tests at 100% line and branch coverage, enforced in
+- **Tested without the network.** 510 tests at 100% line and branch coverage, enforced in
   CI. Every test runs inside an HTTP mock, so a test that forgets to mock a request fails
   instead of reaching the internet.
 - **Test-first.** Later features were written test-first; the history shows each
   `test: … (red)` commit before its implementation.
-- **Contract tests.** The same scan written in both input formats must produce identical
-  findings. Comparing real Juice Shop scans this way caught a bug the hand-written fixtures
-  had missed (scoped npm packages were named differently in CycloneDX).
+- **Contract tests.** The same scan written as Trivy JSON, Grype JSON and CycloneDX must
+  produce identical findings. Comparing real Juice Shop scans this way caught a bug the
+  hand-written fixtures had missed (scoped npm packages were named differently in CycloneDX).
+- **Real data in the tests.** Version-ordering tests use strings from real scans (Debian
+  epochs and `~`, npm multi-branch fixes), after a code review found the fix plan picking
+  unusable upgrade targets on Juice Shop.
+- **The GitHub Action is tested end to end** in CI, against the fixtures and offline.
 - **Strict typing.** pyright in strict mode and Pydantic validation at every boundary.
 - **Resilient by design.** A malformed record is logged and skipped, never fatal. If EPSS
   or KEV is unreachable, vulnrank falls back to stale cached data; without a cache the
@@ -248,7 +291,12 @@ Design decisions are recorded as short ADRs:
   rating Trivy chose, so the display-only severity field may differ from the Trivy JSON
   report. Tiers and ordering are unaffected.
 - **No reachability analysis.** A vulnerable package is ranked whether or not the code path
-  is used in the container (e.g. kernel headers in `linux-libc-dev`).
+  is used in the container (e.g. kernel headers in `linux-libc-dev`); an `[[ignore]]` rule is
+  the way to record that decision.
+- **`.trivyignore.yaml` is not read**, only the plain `.trivyignore` format. `[[ignore]]`
+  rules cover the per-package case.
+- **VEX matching is by advisory ID and purl.** Statements that identify products only by CPE
+  or hash are ignored.
 
 ## Development
 

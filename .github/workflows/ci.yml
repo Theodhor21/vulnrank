@@ -33,3 +33,34 @@ jobs:
         env:
           # Worst case for output assertions: rich and typer emit ANSI colour codes.
           FORCE_COLOR: "1"
+
+  action:
+    # End-to-end test of action.yml, offline against the test fixtures.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Rank a scan and write SARIF
+        uses: ./
+        with:
+          scan: tests/fixtures/trivy/basic.json
+          args: >-
+            --offline --epss-file tests/fixtures/epss/scores.csv
+            --kev-file tests/fixtures/kev/feed.json
+            --format sarif --top 0 --output vulnrank.sarif
+
+      - name: The SARIF file has every finding
+        run: jq -e '.runs[0].results | length == 5' vulnrank.sarif
+
+      - name: Gate on P1
+        id: gate
+        continue-on-error: true
+        uses: ./
+        with:
+          scan: tests/fixtures/trivy/basic.json
+          args: >-
+            --offline --epss-file tests/fixtures/epss/scores.csv
+            --kev-file tests/fixtures/kev/feed.json --fail-on P1 --quiet
+
+      - name: The gate failed, as it should (CVE-2023-0001 is in KEV)
+        run: test "${{ steps.gate.outcome }}" = "failure"
