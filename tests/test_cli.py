@@ -359,3 +359,42 @@ def test_fix_view_is_not_available_for_sarif() -> None:
     result = _run(str(TRIVY), *LOCAL_INTEL, "--view", "fixes", "--format", "sarif")
     assert result.exit_code == EXIT_ERROR
     assert "--view fixes" in _plain(result.output)
+
+
+# --- Suppression -------------------------------------------------------------------------------
+
+
+def test_ignore_file_suppresses_and_warns_about_kev(tmp_path: Path) -> None:
+    ignore = tmp_path / ".trivyignore"
+    ignore.write_text("# admin UI not deployed\nCVE-2023-0001\n", encoding="utf-8")
+    result = _run(str(TRIVY), *LOCAL_INTEL, "--ignore-file", str(ignore), "--format", "json")
+    assert result.exit_code == EXIT_OK
+    document = json.loads(result.stdout)
+    assert "CVE-2023-0001" not in {f["id"] for f in document["findings"]}
+    assert document["suppressed"][0]["reason"] == "admin UI not deployed"
+    assert "suppressed CVE-2023-0001 is in CISA KEV" in _plain(result.stderr)
+
+
+def test_vex_file_suppresses(tmp_path: Path) -> None:
+    vex = FIXTURES / "vex" / "openvex.json"
+    document = _json(str(TRIVY), *LOCAL_INTEL, "--vex", str(vex))
+    ids = [(f["id"], f["component"]["name"]) for f in document["findings"]]
+    assert ("CVE-2023-0002", "openssl") not in ids
+    assert ("CVE-2023-0002", "libssl3") not in ids
+    assert document["summary"]["suppressed"] == 2
+
+
+def test_suppressed_findings_do_not_trip_the_gate(tmp_path: Path) -> None:
+    ignore = tmp_path / ".trivyignore"
+    ignore.write_text("CVE-2023-0001\n", encoding="utf-8")
+    args = ["--ignore-file", str(ignore), "--fail-on", "P1", "-q"]
+    assert _run(str(TRIVY), *LOCAL_INTEL, *args).exit_code == EXIT_OK
+
+
+def test_ignore_rules_from_the_assets_file(tmp_path: Path) -> None:
+    assets = tmp_path / "assets.toml"
+    assets.write_text(
+        '[[ignore]]\npackage = "urllib3"\nreason = "vendored, unused"\n', encoding="utf-8"
+    )
+    document = _json(str(TRIVY), *LOCAL_INTEL, "--assets", str(assets))
+    assert document["suppressed"][0]["component"] == "urllib3"

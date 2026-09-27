@@ -1,0 +1,36 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://example.invalid/vex/demo-app-1",
+  "author": "Demo security team",
+  "timestamp": "2026-09-01T10:00:00Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": { "name": "CVE-2023-0002", "aliases": ["GHSA-demo-demo-demo"] },
+      "products": [
+        {
+          "@id": "pkg:oci/demo-app",
+          "subcomponents": [
+            { "@id": "pkg:deb/debian/libssl3" },
+            { "identifiers": { "purl": "pkg:deb/debian/openssl" } }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path"
+    },
+    {
+      "vulnerability": { "name": "CVE-2023-0003" },
+      "status": "under_investigation"
+    },
+    {
+      "vulnerability": "CVE-2023-0009",
+      "status": "fixed"
+    },
+    {
+      "vulnerability": { "name": "CVE-2023-0010" },
+      "status": "definitely_fine"
+    },
+    "not a statement"
+  ]
+}

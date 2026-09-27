@@ -184,3 +184,11 @@ def test_an_invalid_advisory_id_is_logged_and_skipped(caplog: pytest.LogCaptureF
         result = parse_cyclonedx(_bom({"id": "not an id"}), default_target="x")
     assert (result.findings, result.skipped) == ((), 1)
     assert "not a valid advisory ID" in caplog.text
+
+
+def test_vex_analysis_in_the_sbom_is_read() -> None:
+    analysis = {"state": "not_affected", "justification": "code_not_reachable", "detail": "x"}
+    [finding] = parse_cyclonedx(_bom({"analysis": analysis}), default_target="x").findings
+    assert finding.vulnerability.analysis is not None
+    assert finding.vulnerability.analysis.state == "not_affected"
+    assert finding.vulnerability.analysis.justification == "code_not_reachable"

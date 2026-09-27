@@ -1,4 +1,8 @@
+import logging
 from collections.abc import Collection, Mapping
+from datetime import date
+
+import pytest
 
 from tests.builders import make_asset, make_finding
 from vulnrank.application.service import prioritise
@@ -12,6 +16,7 @@ from vulnrank.domain.models import (
     ScanResult,
 )
 from vulnrank.domain.policy import ScoringPolicy
+from vulnrank.domain.suppression import IgnoreRule, VexStatement, VexStatus
 
 
 class ListSource:
@@ -54,6 +59,17 @@ class NoKev:
 
     def issues(self) -> tuple[str, ...]:
         return self._issues
+
+
+class KevWith:
+    def __init__(self, cve: str) -> None:
+        self._cve = cve
+
+    def lookup(self, cve_ids: Collection[str]) -> Mapping[str, KevEntry]:
+        return {self._cve: KevEntry(cve_id=self._cve, date_added=date(2024, 1, 1))}
+
+    def issues(self) -> tuple[str, ...]:
+        return ()
 
 
 def _assets(target: str) -> Asset:
@@ -128,3 +144,44 @@ def test_target_override_renames_every_finding() -> None:
     )
     assert report.findings[0].finding.target == "prod"
     assert report.findings[0].asset.criticality is Criticality.CRITICAL
+
+
+def test_suppressed_findings_are_reported_apart_and_do_not_count(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    exploited = KevWith("CVE-2024-0002")
+    rule = IgnoreRule(vuln_id="CVE-2024-0002", reason="accepted", source="assets.toml")
+    expired = IgnoreRule(
+        vuln_id="CVE-2024-0001", reason="old", source="assets.toml", expires=date(2026, 1, 1)
+    )
+    with caplog.at_level(logging.WARNING, logger="vulnrank"):
+        report = prioritise(
+            ListSource(
+                [make_finding(vuln_id="CVE-2024-0001"), make_finding(vuln_id="CVE-2024-0002")]
+            ),
+            NoEpss(),
+            exploited,
+            asset_for=_assets,
+            policy=ScoringPolicy(),
+            rules=(rule, expired),
+            today=date(2026, 9, 28),
+        )
+    assert [f.finding.vulnerability.vuln_id for f in report.findings] == ["CVE-2024-0001"]
+    assert [s.scored.finding.vulnerability.vuln_id for s in report.suppressed] == ["CVE-2024-0002"]
+    assert not report.has_findings_at_or_above(Priority.P1)
+    assert "suppressed CVE-2024-0002 is in CISA KEV" in caplog.text
+    assert "ignore rule for CVE-2024-0001 expired on 2026-01-01" in caplog.text
+
+
+def test_vex_statements_are_applied() -> None:
+    statement = VexStatement(vuln_ids=("CVE-2024-0001",), status=VexStatus.FIXED, source="vex.json")
+    report = prioritise(
+        ListSource([make_finding()]),
+        NoEpss(),
+        NoKev(),
+        asset_for=_assets,
+        policy=ScoringPolicy(),
+        statements=(statement,),
+    )
+    assert report.findings == ()
+    assert report.suppressed[0].reason == "VEX: fixed"

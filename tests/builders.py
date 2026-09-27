@@ -13,6 +13,7 @@ from vulnrank.domain.models import (
     Reason,
     ScoredFinding,
     Severity,
+    VexAnalysis,
     Vulnerability,
 )
 
@@ -28,15 +29,18 @@ def make_finding(
     severity: Severity = Severity.UNKNOWN,
     status: FixStatus | None = None,
     ecosystem: str | None = None,
+    purl: str | None = None,
+    analysis: VexAnalysis | None = None,
 ) -> Finding:
     return Finding(
-        component=Component(name=component, version=version, ecosystem=ecosystem),
+        component=Component(name=component, version=version, ecosystem=ecosystem, purl=purl),
         vulnerability=Vulnerability(
             vuln_id=vuln_id,
             cvss_score=cvss,
             fixed_version=fixed_version,
             severity=severity,
             status=status,
+            analysis=analysis,
         ),
         target=target,
     )

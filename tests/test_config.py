@@ -1,4 +1,5 @@
 import re
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -152,3 +153,48 @@ def test_undecodable_config_is_rejected(tmp_path: Path) -> None:
     path.write_bytes('[[assets]]\ntarget = "café"\n'.encode("latin-1"))
     with pytest.raises(ConfigError, match="not valid UTF-8"):
         load_config(path)
+
+
+# --- Ignore rules ---------------------------------------------------------------------------------
+
+
+def test_ignore_rules_are_loaded(tmp_path: Path) -> None:
+    config = load_config(
+        _write(
+            tmp_path,
+            """
+[[ignore]]
+package = "linux-libc-dev"
+reason = "kernel headers; containers use the host kernel"
+
+[[ignore]]
+id = "CVE-2023-0001"
+target = "demo-*"
+reason = "not exposed"
+expires = 2026-12-31
+""",
+        )
+    )
+    first, second = config.ignore
+    assert (first.package, first.vuln_id, first.source) == (
+        "linux-libc-dev",
+        None,
+        str(tmp_path / "assets.toml"),
+    )
+    assert (second.vuln_id, second.target, second.expires) == (
+        "CVE-2023-0001",
+        "demo-*",
+        date(2026, 12, 31),
+    )
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        ('[[ignore]]\nid = "CVE-2023-0001"\n', "reason"),
+        ('[[ignore]]\ntarget = "x"\nreason = "r"\n', "needs an id or a package"),
+    ],
+)
+def test_invalid_ignore_rules_are_rejected(tmp_path: Path, content: str, message: str) -> None:
+    with pytest.raises(ConfigError, match=message):
+        load_config(_write(tmp_path, content))

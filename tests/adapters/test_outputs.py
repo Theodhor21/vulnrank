@@ -9,7 +9,7 @@ from vulnrank.adapters.outputs._format import advisory_url, fix
 from vulnrank.adapters.outputs.json_report import JsonReporter
 from vulnrank.adapters.outputs.markdown import MarkdownReporter
 from vulnrank.adapters.outputs.table import TableReporter
-from vulnrank.domain.models import Criticality, FixStatus, Report, ScoredFinding
+from vulnrank.domain.models import Criticality, FixStatus, Report, ScoredFinding, Suppressed
 from vulnrank.domain.policy import ScoringPolicy
 from vulnrank.domain.scoring import rank, score
 from vulnrank.ports.reporting import Reporter
@@ -78,6 +78,7 @@ def test_json_document_structure() -> None:
         "by_priority": {"P1": 1, "P2": 1, "P3": 0, "P4": 1},
         "targets": ["app:1.0"],
         "enrichment_issues": [],
+        "suppressed": 0,
     }
     first = document["findings"][0]
     assert first["rank"] == 1
@@ -421,3 +422,39 @@ def test_only_the_most_urgent_unfixable_findings_are_listed(reporter: Reporter) 
     assert "CVE-2024-0005" in text
     assert "CVE-2024-0006" not in text
     assert "3 more without a fix; see `--view findings`" in text
+
+
+# --- Suppressed findings -----------------------------------------------------------------------
+
+SUPPRESSED_REPORT = REPORT.model_copy(
+    update={
+        "suppressed": (
+            Suppressed(
+                scored=_scored(cve="CVE-2024-0009", kev=True),
+                reason="accepted risk",
+                source="assets.toml",
+            ),
+        )
+    }
+)
+
+
+def test_summary_counts_suppressed_findings() -> None:
+    assert "1 suppressed" in _render(MarkdownReporter(), SUPPRESSED_REPORT)
+
+
+def test_json_lists_suppressed_findings_with_their_reason() -> None:
+    document = json.loads(_render(JsonReporter(), SUPPRESSED_REPORT))
+    assert document["summary"]["suppressed"] == 1
+    assert document["suppressed"] == [
+        {
+            "id": "CVE-2024-0009",
+            "target": "app:1.0",
+            "component": "openssl",
+            "version": "1.0.0",
+            "priority": "P1",
+            "in_kev": True,
+            "reason": "accepted risk",
+            "source": "assets.toml",
+        }
+    ]

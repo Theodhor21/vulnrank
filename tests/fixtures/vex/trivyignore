@@ -1,0 +1,8 @@
+# Only reachable through the admin UI, which is not deployed
+CVE-2023-0001
+
+# Accepted until the base image upgrade
+CVE-2023-0003 exp:2026-12-31
+
+CVE-2023-0004
+CVE-2023-0005 exp:not-a-date
