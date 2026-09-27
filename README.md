@@ -14,7 +14,7 @@ asset context, then ranks them into priority tiers P1–P4 using transparent, de
 - [x] Domain models and rule-based scoring
 - [x] Input adapters: Trivy JSON, CycloneDX
 - [x] Enrichment: EPSS and CISA KEV, with caching and offline mode
-- [ ] CLI with table, JSON and Markdown output and a CI gate
+- [x] CLI with table, JSON and Markdown output and a CI gate
 - [ ] Portfolio polish: architecture diagram, ADRs, badges
 
 ## Development

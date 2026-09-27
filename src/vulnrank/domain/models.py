@@ -139,3 +139,25 @@ class ScoredFinding(DomainModel):
     @property
     def explanation(self) -> str:
         return "; ".join(reason.text for reason in self.reasons)
+
+
+class Report(DomainModel):
+    """The outcome of one run: ranked findings plus what happened on the way."""
+
+    findings: tuple[ScoredFinding, ...]
+    scanned: int
+    duplicates_removed: int
+
+    @property
+    def counts(self) -> dict[Priority, int]:
+        counts = dict.fromkeys(Priority, 0)
+        for scored in self.findings:
+            counts[scored.priority] += 1
+        return counts
+
+    @property
+    def targets(self) -> tuple[str, ...]:
+        return tuple(sorted({scored.finding.target for scored in self.findings}))
+
+    def has_findings_at_or_above(self, threshold: Priority) -> bool:
+        return any(scored.priority.is_at_least(threshold) for scored in self.findings)
