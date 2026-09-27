@@ -1,5 +1,7 @@
 """Display helpers shared by the human-readable reporters."""
 
+from collections.abc import Callable
+
 from vulnrank.domain.models import FixStatus, Priority, Report, ScoredFinding
 from vulnrank.domain.remediation import FixAction, FixPlan
 
@@ -76,21 +78,28 @@ def enrichment_warning(report: Report) -> str | None:
     return "Warning: enrichment incomplete: " + "; ".join(report.enrichment_issues)
 
 
-def listed(report: Report, limit: int | None) -> tuple[ScoredFinding, ...]:
-    return report.findings if limit is None else report.findings[:limit]
+def listed[T](items: tuple[T, ...], limit: int | None) -> tuple[T, ...]:
+    return items if limit is None else items[:limit]
 
 
-def truncation_note(report: Report, limit: int | None) -> str | None:
-    total = len(report.findings)
-    hidden = total - len(listed(report, limit))
-    if hidden == 0:
+def truncation_note(total: int, limit: int | None, noun: str = "") -> str | None:
+    """`Showing the top 20 of 415 upgrades; 395 more not shown.` or None if nothing is hidden."""
+    shown = total if limit is None else min(limit, total)
+    if shown == total:
         return None
-    return f"Showing the top {limit} of {total}; {hidden} more not shown."
+    what = f" {noun}" if noun else ""
+    return f"Showing the top {shown} of {total}{what}; {total - shown} more not shown."
+
+
+def shortened[T](items: tuple[T, ...], shown: int, render: Callable[[T], str] = str) -> str:
+    """`a, b, c +4 more`"""
+    more = f" +{len(items) - shown} more" if len(items) > shown else ""
+    return ", ".join(render(item) for item in items[:shown]) + more
 
 
 # --- Fix plan ----------------------------------------------------------------------------------
 
-SHOWN_IDS = 3
+UNFIXABLE_SHOWN = 5
 
 
 def _plural(count: int, singular: str, plural: str) -> str:
@@ -98,11 +107,14 @@ def _plural(count: int, singular: str, plural: str) -> str:
 
 
 def fix_plan_summary(plan: FixPlan) -> str:
+    """`37 upgrades cover 337 findings; 87 findings have no fix (44 not yet fixed, ...)`"""
     upgrades, covered, open_ = len(plan.actions), plan.fixable_findings, len(plan.unfixable)
+    breakdown = ", ".join(f"{count} {status}" for status, count in plan.unfixable_by_status.items())
     return (
         f"{upgrades} {_plural(upgrades, 'upgrade covers', 'upgrades cover')} "
         f"{covered} {_plural(covered, 'finding', 'findings')}; "
-        f"{open_} {_plural(open_, 'finding has', 'findings have')} no fix yet"
+        f"{open_} {_plural(open_, 'finding has', 'findings have')} no fix"
+        + (f" ({breakdown})" if breakdown else "")
     )
 
 
@@ -116,19 +128,11 @@ def vulnerabilities(action: FixAction) -> str:
     return f"{len(action.vuln_ids)} ({breakdown})"
 
 
-def shortened_ids(action: FixAction, shown: int = SHOWN_IDS) -> str:
-    ids = action.vuln_ids
-    more = f" +{len(ids) - shown} more" if len(ids) > shown else ""
-    return ", ".join(ids[:shown]) + more
+def unfixable_listed(plan: FixPlan) -> tuple[ScoredFinding, ...]:
+    """The most urgent findings without a fix (the plan keeps them in ranked order)."""
+    return listed(plan.unfixable, UNFIXABLE_SHOWN)
 
 
-def listed_actions(plan: FixPlan, limit: int | None) -> tuple[FixAction, ...]:
-    return plan.actions if limit is None else plan.actions[:limit]
-
-
-def actions_truncation_note(plan: FixPlan, limit: int | None) -> str | None:
-    total = len(plan.actions)
-    hidden = total - len(listed_actions(plan, limit))
-    if hidden == 0:
-        return None
-    return f"Showing the top {limit} of {total} upgrades; {hidden} more not shown."
+def unfixable_more_note(plan: FixPlan) -> str | None:
+    hidden = len(plan.unfixable) - len(unfixable_listed(plan))
+    return f"{hidden} more without a fix; see `--view findings`." if hidden else None

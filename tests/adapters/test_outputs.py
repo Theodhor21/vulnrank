@@ -279,8 +279,8 @@ def test_markdown_fix_plan() -> None:
     assert "1 upgrade covers 4 findings; 1 finding has no fix (1 not yet fixed)" in text
     assert "| 1 | **P1** | libssl1.1, openssl | 1.0.0 → 1.2 | 2 (P1: 1, P2: 1) | 1 |" in text
     assert (
-        "| **P4** | [CVE-2024-0003](https://nvd.nist.gov/vuln/detail/CVE-2024-0003) | zlib 1.0.0 | not yet fixed |"
-        in text
+        "| **P4** | [CVE-2024-0003](https://nvd.nist.gov/vuln/detail/CVE-2024-0003) "
+        "| zlib 1.0.0 | not yet fixed |" in text
     )
     assert "[CVE-2024-0001](https://nvd.nist.gov/vuln/detail/CVE-2024-0001)" in text
 
@@ -406,13 +406,18 @@ def test_narrow_fix_table_drops_secondary_columns() -> None:
     assert "…" not in text
 
 
-def test_only_the_most_urgent_unfixable_findings_are_listed() -> None:
+@pytest.mark.parametrize(
+    "reporter",
+    [MarkdownReporter(fixes=True), TableReporter(width=200, fixes=True)],
+    ids=["markdown", "table"],
+)
+def test_only_the_most_urgent_unfixable_findings_are_listed(reporter: Reporter) -> None:
     many = Report(
         findings=tuple(rank([_scored(cve=f"CVE-2024-{n:04d}") for n in range(1, 9)])),
         scanned=8,
         duplicates_removed=0,
     )
-    text = _render(MarkdownReporter(fixes=True), many)
+    text = _render(reporter, many)
     assert "CVE-2024-0005" in text
     assert "CVE-2024-0006" not in text
     assert "3 more without a fix; see `--view findings`" in text

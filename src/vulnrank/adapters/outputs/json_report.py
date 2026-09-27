@@ -19,7 +19,7 @@ class JsonReporter:
 
 
 def to_document(report: Report, limit: int | None = None) -> dict[str, object]:
-    findings = listed(report, limit)
+    findings = listed(report.findings, limit)
     return {
         "schema_version": SCHEMA_VERSION,
         "summary": {
@@ -33,15 +33,17 @@ def to_document(report: Report, limit: int | None = None) -> dict[str, object]:
             "enrichment_issues": list(report.enrichment_issues),
         },
         "findings": [_finding(rank, scored) for rank, scored in enumerate(findings, start=1)],
-        "fix_plan": _fix_plan(report),
+        "fix_plan": _fix_plan(report, limit),
     }
 
 
-def _fix_plan(report: Report) -> dict[str, object]:
+def _fix_plan(report: Report, limit: int | None) -> dict[str, object]:
     plan = plan_fixes(report.findings)
+    actions = listed(plan.actions, limit)
     return {
-        "actions": [_action(rank, action) for rank, action in enumerate(plan.actions, start=1)],
-        "unfixable_findings": len(plan.unfixable),
+        "actions": [_action(rank, action) for rank, action in enumerate(actions, start=1)],
+        "total_actions": len(plan.actions),
+        "unfixable": {"count": len(plan.unfixable), "by_status": plan.unfixable_by_status},
     }
 
 

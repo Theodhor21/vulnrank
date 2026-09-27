@@ -1,8 +1,7 @@
 import pytest
 
 from tests.builders import make_scored
-from vulnrank.domain.models import Priority, ScoredFinding
-from vulnrank.domain.models import FixStatus
+from vulnrank.domain.models import FixStatus, Priority, ScoredFinding
 from vulnrank.domain.remediation import plan_fixes
 
 P1, P2, P3, P4 = Priority.P1, Priority.P2, Priority.P3, Priority.P4

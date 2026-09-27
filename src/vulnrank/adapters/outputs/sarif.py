@@ -47,7 +47,7 @@ class SarifReporter:
         out.write("\n")
 
     def to_document(self, report: Report, limit: int | None = None) -> dict[str, object]:
-        findings = fmt.listed(report, limit)
+        findings = fmt.listed(report.findings, limit)
         rule_ids = list(dict.fromkeys(f.finding.vulnerability.vuln_id for f in findings))
         rule_index = {cve: index for index, cve in enumerate(rule_ids)}
         return {

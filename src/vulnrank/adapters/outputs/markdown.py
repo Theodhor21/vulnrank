@@ -4,10 +4,10 @@ from typing import TextIO
 
 from vulnrank.adapters.outputs import _format as fmt
 from vulnrank.domain.models import Report, ScoredFinding
-from vulnrank.domain.remediation import FixAction, plan_fixes
+from vulnrank.domain.remediation import FixAction, FixPlan, no_fix_status, plan_fixes
 
 HEADER = ("#", "Tier", "ID", "Component", "EPSS", "CVSS", "KEV", "Fix", "Why")
-FIX_HEADER = ("#", "Tier", "Upgrade", "Version", "Vulnerabilities", "KEV", "IDs")
+UNFIXABLE_HEADER = ("Tier", "ID", "Component", "Status")
 LINKED_IDS = 5
 
 
@@ -20,59 +20,86 @@ class MarkdownReporter:
 
 
 def render(report: Report, limit: int | None = None) -> str:
-    title = ", ".join(report.targets) or "no findings"
-    lines = [f"## vulnrank: {_escape(title)}", "", fmt.summary(report), ""]
-    if warning := fmt.enrichment_warning(report):
-        lines.extend([f"> **{_escape(warning)}**", ""])
-    findings = fmt.listed(report, limit)
-    if findings:
-        lines.append(_row(HEADER))
-        lines.append(_row(("---:", *("---" for _ in HEADER[1:]))))
-        lines.extend(_row(_cells(rank, s)) for rank, s in enumerate(findings, start=1))
-        lines.append("")
-    if note := fmt.truncation_note(report, limit):
+    lines = _heading(report, "vulnrank", fmt.summary(report))
+    findings = fmt.listed(report.findings, limit)
+    lines += _table(HEADER, [_cells(rank, s) for rank, s in enumerate(findings, start=1)])
+    if note := fmt.truncation_note(len(report.findings), limit):
         lines.extend([f"_{note}_", ""])
     return "\n".join(lines)
 
 
 def render_fix_plan(report: Report, limit: int | None = None) -> str:
     plan = plan_fixes(report.findings)
-    title = ", ".join(report.targets) or "no findings"
-    lines = [f"## vulnrank fix plan: {_escape(title)}", "", fmt.fix_plan_summary(plan), ""]
-    if warning := fmt.enrichment_warning(report):
-        lines.extend([f"> **{_escape(warning)}**", ""])
-    actions = fmt.listed_actions(plan, limit)
-    if actions:
-        lines.append(_row(FIX_HEADER))
-        lines.append(_row(("---:", *("---" for _ in FIX_HEADER[1:]))))
-        lines.extend(_row(_fix_cells(rank, a)) for rank, a in enumerate(actions, start=1))
-        lines.append("")
-    if note := fmt.actions_truncation_note(plan, limit):
+    lines = _heading(report, "vulnrank fix plan", fmt.fix_plan_summary(plan))
+    show_target = len(report.targets) > 1
+    header = ("#", "Tier", *(["Target"] if show_target else []), "Upgrade", "Version")
+    header += ("Vulnerabilities", "KEV", "IDs")
+    actions = fmt.listed(plan.actions, limit)
+    rows = [_fix_cells(rank, a, show_target=show_target) for rank, a in enumerate(actions, 1)]
+    lines += _table(header, rows)
+    if note := fmt.truncation_note(len(plan.actions), limit, "upgrades"):
         lines.extend([f"_{note}_", ""])
+    lines += _unfixable(plan)
     return "\n".join(lines)
 
 
-def _fix_cells(rank: int, action: FixAction) -> tuple[str, ...]:
-    ids = action.vuln_ids
-    linked = ", ".join(f"[{i}]({fmt.advisory_url(i)})" for i in ids[:LINKED_IDS])
-    more = f" +{len(ids) - LINKED_IDS} more" if len(ids) > LINKED_IDS else ""
+def _heading(report: Report, title: str, summary: str) -> list[str]:
+    targets = ", ".join(report.targets) or "no findings"
+    lines = [f"## {title}: {_escape(targets)}", "", summary, ""]
+    if warning := fmt.enrichment_warning(report):
+        lines.extend([f"> **{_escape(warning)}**", ""])
+    return lines
+
+
+def _table(header: tuple[str, ...], rows: list[tuple[str, ...]]) -> list[str]:
+    if not rows:
+        return []
+    align = ("---:" if header[0] == "#" else "---", *("---" for _ in header[1:]))
+    return [_row(header), _row(align), *(_row(cells) for cells in rows), ""]
+
+
+def _unfixable(plan: FixPlan) -> list[str]:
+    shown = fmt.unfixable_listed(plan)
+    if not shown:
+        return []
+    lines = ["**Without a fix** (most urgent first)", ""]
+    lines += _table(UNFIXABLE_HEADER, [_unfixable_cells(s) for s in shown])
+    if note := fmt.unfixable_more_note(plan):
+        lines.extend([f"_{note}_", ""])
+    return lines
+
+
+def _link(vuln_id: str) -> str:
+    return f"[{vuln_id}]({fmt.advisory_url(vuln_id)})"
+
+
+def _fix_cells(rank: int, action: FixAction, *, show_target: bool) -> tuple[str, ...]:
     return (
         str(rank),
         f"**{action.priority}**",
+        *([_escape(action.target)] if show_target else []),
         _escape(", ".join(action.packages)),
         _escape(fmt.upgrade(action)),
         fmt.vulnerabilities(action),
         str(action.kev_count),
-        linked + more,
+        fmt.shortened(action.vuln_ids, LINKED_IDS, _link),
+    )
+
+
+def _unfixable_cells(scored: ScoredFinding) -> tuple[str, ...]:
+    return (
+        f"**{scored.priority}**",
+        _link(scored.finding.vulnerability.vuln_id),
+        _escape(fmt.component(scored)),
+        no_fix_status(scored),
     )
 
 
 def _cells(rank: int, scored: ScoredFinding) -> tuple[str, ...]:
-    vuln_id = scored.finding.vulnerability.vuln_id
     return (
         str(rank),
         f"**{scored.priority}**",
-        f"[{vuln_id}]({fmt.advisory_url(vuln_id)})",
+        _link(scored.finding.vulnerability.vuln_id),
         _escape(fmt.component(scored)),
         fmt.epss(scored),
         fmt.cvss(scored),

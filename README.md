@@ -51,7 +51,7 @@ the most urgent finding each one fixes:
 uv run vulnrank examples/nginx-1.19.trivy.json --view fixes --top 5
 ```
 
-> 37 upgrades cover 337 findings; 87 findings have no fix yet
+> 37 upgrades cover 337 findings; 87 findings have no fix (44 not yet fixed, 32 will not fix, 11 deferred)
 >
 > | # | Tier | Upgrade | Version | Vulnerabilities | KEV |
 > | ---: | --- | --- | --- | --- | --- |
@@ -65,6 +65,10 @@ uv run vulnrank examples/nginx-1.19.trivy.json --view fixes --top 5
 
 Binary packages built from one source (`openssl` and `libssl1.1`) are merged into one action
 when they need exactly the same fixes. On `python:3.8`, 11,706 findings become 58 upgrades.
+When a scanner lists one fix per release branch (`3.0.8, 3.1.2`), the plan picks the smallest
+upgrade on your branch; Debian versions are compared with dpkg's rules (epochs, `~`), and
+pre-releases (`-beta`, `rc1`, `-SNAPSHOT`) sort before their release. The fix view also lists
+the most urgent findings that have no fix, and why (not yet fixed, will not fix, deferred).
 
 ## Quick start
 
@@ -211,7 +215,7 @@ every module in the core and fails if it imports an adapter or an I/O library.
 
 ## Engineering notes
 
-- **Tested without the network.** 395 tests at 100% line and branch coverage, enforced in
+- **Tested without the network.** 429 tests at 100% line and branch coverage, enforced in
   CI. Every test runs inside an HTTP mock, so a test that forgets to mock a request fails
   instead of reaching the internet.
 - **Test-first.** Later features were written test-first; the history shows each

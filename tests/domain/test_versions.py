@@ -22,6 +22,7 @@ from vulnrank.domain.versions import compare_versions, fix_target
         pytest.param("1.0.0-rc.1", "1.0.0", "npm", id="npm-rc"),
         pytest.param("9.0.7", "10.2.3", "npm", id="npm-numeric-major"),
         pytest.param("1.2.3", "1.2.3.1", "npm", id="longer-is-newer"),
+        pytest.param("1.0.beta", "1.0.1", "npm", id="number-outranks-word"),
         # PyPI (PEP 440 basics).
         pytest.param("1.0a1", "1.0", "pypi", id="pypi-alpha"),
         pytest.param("1.0rc1", "1.0", "pypi", id="pypi-rc"),
