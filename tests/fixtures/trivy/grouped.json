@@ -1,0 +1,36 @@
+{
+  "SchemaVersion": 2,
+  "ArtifactName": "grouped-app:1.0",
+  "Results": [
+    {
+      "Target": "app/package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2024-1001",
+          "PkgName": "@scope/once",
+          "PkgIdentifier": { "PURL": "pkg:npm/%40scope/once@1.1.2" },
+          "InstalledVersion": "1.1.2",
+          "FixedVersion": "2.0.1",
+          "Severity": "HIGH"
+        }
+      ]
+    },
+    {
+      "Target": "app/lib/app.jar",
+      "Class": "lang-pkgs",
+      "Type": "jar",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2024-1002",
+          "PkgName": "org.example.logging:logging-core",
+          "PkgIdentifier": { "PURL": "pkg:maven/org.example.logging/logging-core@2.14.1" },
+          "InstalledVersion": "2.14.1",
+          "FixedVersion": "2.17.1",
+          "Severity": "CRITICAL"
+        }
+      ]
+    }
+  ]
+}

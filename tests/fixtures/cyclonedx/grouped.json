@@ -1,0 +1,37 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "metadata": { "component": { "name": "grouped-app:1.0" } },
+  "components": [
+    {
+      "bom-ref": "pkg:npm/%40scope/once@1.1.2",
+      "type": "library",
+      "group": "@scope",
+      "name": "once",
+      "version": "1.1.2",
+      "purl": "pkg:npm/%40scope/once@1.1.2"
+    },
+    {
+      "bom-ref": "pkg:maven/org.example.logging/logging-core@2.14.1",
+      "type": "library",
+      "group": "org.example.logging",
+      "name": "logging-core",
+      "version": "2.14.1",
+      "purl": "pkg:maven/org.example.logging/logging-core@2.14.1"
+    }
+  ],
+  "vulnerabilities": [
+    {
+      "id": "CVE-2024-1001",
+      "ratings": [{ "source": { "name": "ghsa" }, "severity": "high" }],
+      "recommendation": "Upgrade @scope/once to version 2.0.1",
+      "affects": [{ "ref": "pkg:npm/%40scope/once@1.1.2" }]
+    },
+    {
+      "id": "CVE-2024-1002",
+      "ratings": [{ "source": { "name": "ghsa" }, "severity": "critical" }],
+      "recommendation": "Upgrade org.example.logging:logging-core to version 2.17.1",
+      "affects": [{ "ref": "pkg:maven/org.example.logging/logging-core@2.14.1" }]
+    }
+  ]
+}
