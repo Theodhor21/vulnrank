@@ -65,10 +65,19 @@ class _Vulnerability(RawModel):
 
 class _Component(RawModel):
     bom_ref: str | None = Field(default=None, alias="bom-ref")
+    group: str | None = None
     name: str
     version: str = ""
     purl: str | None = None
     components: list[object] = Field(default_factory=list[object])
+
+    @property
+    def full_name(self) -> str:
+        """The name as Trivy JSON reports it: `@scope/pkg` for npm, `group:artifact` for Maven."""
+        if not self.group:
+            return self.name
+        separator = ":" if (self.purl or "").startswith("pkg:maven/") else "/"
+        return f"{self.group}{separator}{self.name}"
 
 
 class _MetadataComponent(RawModel):
@@ -181,7 +190,7 @@ def _to_finding(
     try:
         return Finding(
             component=Component(
-                name=component.name,
+                name=component.full_name,
                 version=component.version or _affected_version(affects) or "",
                 purl=component.purl,
                 ecosystem=ecosystem_from_purl(component.purl),
@@ -224,7 +233,7 @@ def _fixed_version(
 ) -> str | None:
     for part in (vulnerability.recommendation or "").split("; "):
         match = _RECOMMENDATION.fullmatch(part.strip())
-        if match and match["package"] == component.name:
+        if match and match["package"] == component.full_name:
             return match["version"]
     for version in affects.versions:
         if version.status == "unaffected" and version.version:
