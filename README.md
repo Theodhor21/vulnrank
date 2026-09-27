@@ -22,15 +22,15 @@ It combines three signals:
 ## Example
 
 Real output for the public `nginx:1.19` image (Trivy scan in [`examples/`](examples/), EPSS
-and KEV data as of 2026-09-27):
+and KEV data as of 2026-09-28):
 
 ```sh
 uv run vulnrank examples/nginx-1.19.trivy.json --format markdown --top 6
 ```
 
-> P1: 2 · P2: 48 · P3: 154 · P4: 211 (415 unique findings from 415 scanned)
+> P1: 2 · P2: 48 · P3: 154 · P4: 220 (424 unique findings from 424 records)
 >
-> | # | Tier | CVE | Component | EPSS | CVSS | KEV | Fix | Why |
+> | # | Tier | ID | Component | EPSS | CVSS | KEV | Fix | Why |
 > | ---: | --- | --- | --- | --- | --- | --- | --- | --- |
 > | 1 | **P1** | [CVE-2023-44487](https://nvd.nist.gov/vuln/detail/CVE-2023-44487) | libnghttp2-14 1.36.0-2+deb10u1 | 100.0% | 7.5 | **yes** | 1.36.0-2+deb10u2 | in CISA KEV (added 2023-10-10) |
 > | 2 | **P1** | [CVE-2023-4863](https://nvd.nist.gov/vuln/detail/CVE-2023-4863) | libwebp6 0.6.1-2 | 100.0% | 8.8 | **yes** | 0.6.1-2+deb10u3 | in CISA KEV (added 2023-09-13) |
@@ -39,8 +39,32 @@ uv run vulnrank examples/nginx-1.19.trivy.json --format markdown --top 6
 > | 5 | **P2** | [CVE-2022-2068](https://nvd.nist.gov/vuln/detail/CVE-2022-2068) | libssl1.1 1.1.1d-0+deb10u6 | 95.4% | 7.3 | no | 1.1.1n-0+deb10u3 | EPSS 95.4% ≥ 10.0% |
 > | 6 | **P2** | [CVE-2022-2068](https://nvd.nist.gov/vuln/detail/CVE-2022-2068) | openssl 1.1.1d-0+deb10u6 | 95.4% | 7.3 | no | 1.1.1n-0+deb10u3 | EPSS 95.4% ≥ 10.0% |
 
-Of 415 findings, two are confirmed to be exploited in the wild (HTTP/2 "Rapid Reset" and
+Of 424 findings, two are confirmed to be exploited in the wild (HTTP/2 "Rapid Reset" and
 the libwebp heap overflow). Both have a fix available. That is where to start.
+
+### Or as a fix plan
+
+Teams patch packages, not CVEs. `--view fixes` groups the same scan into upgrades, ranked by
+the most urgent finding each one fixes:
+
+```sh
+uv run vulnrank examples/nginx-1.19.trivy.json --view fixes --top 5
+```
+
+> 37 upgrades cover 337 findings; 87 findings have no fix yet
+>
+> | # | Tier | Upgrade | Version | Vulnerabilities | KEV |
+> | ---: | --- | --- | --- | --- | --- |
+> | 1 | **P1** | libwebp6 | 0.6.1-2 → 0.6.1-2+deb10u3 | 13 (P1: 1, P3: 12) | 1 |
+> | 2 | **P1** | libnghttp2-14 | 1.36.0-2+deb10u1 → 1.36.0-2+deb10u3 | 3 (P1: 1, P2: 1, P3: 1) | 1 |
+> | 3 | **P2** | libssl1.1, openssl | 1.1.1d-0+deb10u6 → 1.1.1n-0+deb10u6 | 17 (P2: 9, P3: 2, P4: 6) | 0 |
+> | 4 | **P2** | libxml2 | 2.9.4+dfsg1-7+deb10u1 → 2.9.4+dfsg1-7+deb10u6 | 12 (P2: 3, P3: 3, P4: 6) | 0 |
+> | 5 | **P2** | zlib1g | 1:1.2.11.dfsg-1 → 1:1.2.11.dfsg-1+deb10u2 | 2 (P2: 2) | 0 |
+>
+> <sub>The real output also lists the vulnerability IDs of each upgrade; shortened here.</sub>
+
+Binary packages built from one source (`openssl` and `libssl1.1`) are merged into one action
+when they need exactly the same fixes. On `python:3.8`, 11,706 findings become 58 upgrades.
 
 ## Quick start
 
@@ -63,7 +87,8 @@ uv run vulnrank scan.json --assets assets.toml --top 20
 | --- | --- |
 | `--format table\|json\|markdown\|sarif` | Terminal table (default), JSON for tools, Markdown for PRs, SARIF for GitHub code scanning |
 | `--assets FILE` | Asset context and scoring thresholds ([example](examples/assets.toml)) |
-| `--top N` | List the top N findings (default 20, `0` = all) |
+| `--view findings\|fixes` | Ranked findings (default), or upgrades grouped by fix |
+| `--top N` | List the top N findings or upgrades (default 20, `0` = all) |
 | `--fail-on P1` | Exit with code 1 if any finding is at this tier or above: a CI gate |
 | `--strict` | Exit with code 2 if EPSS or KEV data could not be loaded, so a gate never passes blind |
 | `--target NAME` | Report findings under this name and match assets against it |
@@ -131,6 +156,24 @@ steps:
 In the SARIF output, tiers map onto GitHub's severity labels (P1 critical, P2 high, P3
 medium, P4 low), so the Security tab sorts by vulnrank's priority, not raw CVSS.
 
+## How it compares
+
+Ranking vulnerabilities by KEV, then EPSS, then CVSS is a well-known approach, not something
+vulnrank invented. [CVE_Prioritizer](https://github.com/TURROKS/CVE_Prioritizer) ranks CVE lists
+this way, and [Grype](https://github.com/anchore/grype) sorts its own scan results by an
+EPSS/KEV-based risk score. vulnrank builds on the same signals and adds:
+
+- **Asset context that changes the tier.** Criticality and internet exposure per image,
+  matched by name, repository or glob, without a server or platform.
+- **A reason for every decision**, in plain text, Markdown for pull requests, and SARIF.
+- **SARIF severities that follow the tier**, so GitHub's Security tab sorts by exploit-aware
+  priority rather than raw CVSS (Grype's SARIF uses CVSS for this).
+- **A fix plan:** "upgrade X to Y fixes N vulnerabilities", with split packages merged.
+- **A small, offline-capable post-processor** for Trivy and CycloneDX output you already have.
+
+Platforms such as [Dependency-Track](https://dependencytrack.org/) and
+[DefectDojo](https://www.defectdojo.org/) also track EPSS and KEV, with a server and database.
+
 ## Architecture
 
 Ports and adapters: the scoring core is pure Python with no I/O, and every external format
@@ -168,7 +211,7 @@ every module in the core and fails if it imports an adapter or an I/O library.
 
 ## Engineering notes
 
-- **Tested without the network.** 367 tests at 100% line and branch coverage, enforced in
+- **Tested without the network.** 395 tests at 100% line and branch coverage, enforced in
   CI. Every test runs inside an HTTP mock, so a test that forgets to mock a request fails
   instead of reaching the internet.
 - **Test-first.** Later features were written test-first; the history shows each

@@ -5,9 +5,10 @@ from typing import TextIO
 
 from vulnrank.adapters.outputs._format import listed
 from vulnrank.domain.models import Report, ScoredFinding
+from vulnrank.domain.remediation import FixAction, plan_fixes
 
-# 2: "cve" became "id" (advisories without a CVE are kept); added fix_status, skipped and
-#    enrichment_issues.
+# 2: "cve" became "id" (advisories without a CVE are kept); added fix_status, skipped,
+#    enrichment_issues and fix_plan.
 SCHEMA_VERSION = 2
 
 
@@ -32,6 +33,29 @@ def to_document(report: Report, limit: int | None = None) -> dict[str, object]:
             "enrichment_issues": list(report.enrichment_issues),
         },
         "findings": [_finding(rank, scored) for rank, scored in enumerate(findings, start=1)],
+        "fix_plan": _fix_plan(report),
+    }
+
+
+def _fix_plan(report: Report) -> dict[str, object]:
+    plan = plan_fixes(report.findings)
+    return {
+        "actions": [_action(rank, action) for rank, action in enumerate(plan.actions, start=1)],
+        "unfixable_findings": len(plan.unfixable),
+    }
+
+
+def _action(rank: int, action: FixAction) -> dict[str, object]:
+    return {
+        "rank": rank,
+        "priority": str(action.priority),
+        "target": action.target,
+        "packages": list(action.packages),
+        "installed_version": action.installed_version,
+        "fixed_version": action.fixed_version,
+        "vulnerabilities": list(action.vuln_ids),
+        "by_priority": {str(p): n for p, n in action.counts.items()},
+        "in_kev": action.kev_count,
     }
 
 

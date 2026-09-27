@@ -1,6 +1,7 @@
 """Display helpers shared by the human-readable reporters."""
 
 from vulnrank.domain.models import FixStatus, Priority, Report, ScoredFinding
+from vulnrank.domain.remediation import FixAction, FixPlan
 
 NOT_AVAILABLE = "-"
 
@@ -85,3 +86,49 @@ def truncation_note(report: Report, limit: int | None) -> str | None:
     if hidden == 0:
         return None
     return f"Showing the top {limit} of {total}; {hidden} more not shown."
+
+
+# --- Fix plan ----------------------------------------------------------------------------------
+
+SHOWN_IDS = 3
+
+
+def _plural(count: int, singular: str, plural: str) -> str:
+    return singular if count == 1 else plural
+
+
+def fix_plan_summary(plan: FixPlan) -> str:
+    upgrades, covered, open_ = len(plan.actions), plan.fixable_findings, len(plan.unfixable)
+    return (
+        f"{upgrades} {_plural(upgrades, 'upgrade covers', 'upgrades cover')} "
+        f"{covered} {_plural(covered, 'finding', 'findings')}; "
+        f"{open_} {_plural(open_, 'finding has', 'findings have')} no fix yet"
+    )
+
+
+def upgrade(action: FixAction) -> str:
+    return f"{action.installed_version} → {action.fixed_version}"
+
+
+def vulnerabilities(action: FixAction) -> str:
+    """`2 (P1: 1, P2: 1)`: distinct vulnerabilities, broken down by tier."""
+    breakdown = ", ".join(f"{p}: {n}" for p, n in action.counts.items() if n)
+    return f"{len(action.vuln_ids)} ({breakdown})"
+
+
+def shortened_ids(action: FixAction, shown: int = SHOWN_IDS) -> str:
+    ids = action.vuln_ids
+    more = f" +{len(ids) - shown} more" if len(ids) > shown else ""
+    return ", ".join(ids[:shown]) + more
+
+
+def listed_actions(plan: FixPlan, limit: int | None) -> tuple[FixAction, ...]:
+    return plan.actions if limit is None else plan.actions[:limit]
+
+
+def actions_truncation_note(plan: FixPlan, limit: int | None) -> str | None:
+    total = len(plan.actions)
+    hidden = total - len(listed_actions(plan, limit))
+    if hidden == 0:
+        return None
+    return f"Showing the top {limit} of {total} upgrades; {hidden} more not shown."

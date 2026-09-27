@@ -302,7 +302,8 @@ def test_fix_plan_limit_applies_to_upgrades() -> None:
         scanned=2,
         duplicates_removed=0,
     )
-    assert "Showing the top 1 of 2 upgrades" in _render(MarkdownReporter(fixes=True), two, limit=1)
+    for reporter in (MarkdownReporter(fixes=True), TableReporter(width=200, fixes=True)):
+        assert "Showing the top 1 of 2 upgrades" in _render(reporter, two, limit=1)
 
 
 def test_long_vulnerability_lists_are_shortened_in_the_table() -> None:
@@ -313,3 +314,46 @@ def test_long_vulnerability_lists_are_shortened_in_the_table() -> None:
     )
     text = _render(TableReporter(width=200, fixes=True), many)
     assert "CVE-2024-0001, CVE-2024-0002, CVE-2024-0003 +4 more" in text
+
+
+FIX_REPORT_WITH_ISSUES = FIX_REPORT.model_copy(
+    update={"enrichment_issues": ("offline: no cached KEV catalog",)}
+)
+
+
+@pytest.mark.parametrize(
+    "reporter",
+    [MarkdownReporter(fixes=True), TableReporter(width=200, fixes=True)],
+    ids=["markdown", "table"],
+)
+def test_fix_plan_warns_about_incomplete_enrichment(reporter: Reporter) -> None:
+    text = _render(reporter, FIX_REPORT_WITH_ISSUES)
+    assert "Warning: enrichment incomplete: offline: no cached KEV catalog" in text
+
+
+@pytest.mark.parametrize(
+    "reporter",
+    [MarkdownReporter(fixes=True), TableReporter(width=200, fixes=True)],
+    ids=["markdown", "table"],
+)
+def test_fix_plan_without_any_fix(reporter: Reporter) -> None:
+    nothing_fixable = Report(
+        findings=(_scored(cve="CVE-2024-0003"),), scanned=1, duplicates_removed=0
+    )
+    text = _render(reporter, nothing_fixable)
+    assert "0 upgrades cover 0 findings; 1 finding has no fix yet" in text
+    assert "Upgrade" not in text.replace("upgrades cover", "")
+
+
+def test_fix_plan_table_shows_targets_when_there_are_several() -> None:
+    report = Report(
+        findings=(
+            _scored(cve="CVE-2024-0001", fixed="2", target="api:2"),
+            _scored(cve="CVE-2024-0001", fixed="2", target="web:1"),
+        ),
+        scanned=2,
+        duplicates_removed=0,
+    )
+    text = _render(TableReporter(width=200, fixes=True), report)
+    assert "Target" in text
+    assert "api:2" in text

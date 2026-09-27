@@ -46,11 +46,18 @@ class OutputFormat(StrEnum):
     SARIF = "sarif"
 
 
-REPORTERS: dict[OutputFormat, Callable[[str | None], Reporter]] = {
-    OutputFormat.TABLE: lambda _: TableReporter(),
-    OutputFormat.JSON: lambda _: JsonReporter(),
-    OutputFormat.MARKDOWN: lambda _: MarkdownReporter(),
-    OutputFormat.SARIF: lambda sarif_uri: SarifReporter(artifact_uri=sarif_uri),
+class View(StrEnum):
+    FINDINGS = "findings"
+    FIXES = "fixes"
+
+
+ReporterFactory = Callable[[bool, str | None], Reporter]  # (fix plan view?, SARIF uri)
+
+REPORTERS: dict[OutputFormat, ReporterFactory] = {
+    OutputFormat.TABLE: lambda fixes, _: TableReporter(fixes=fixes),
+    OutputFormat.JSON: lambda _fixes, _uri: JsonReporter(),  # always includes the fix plan
+    OutputFormat.MARKDOWN: lambda fixes, _: MarkdownReporter(fixes=fixes),
+    OutputFormat.SARIF: lambda _, sarif_uri: SarifReporter(artifact_uri=sarif_uri),
 }
 
 
@@ -74,7 +81,13 @@ def main(
     output_format: Annotated[
         OutputFormat, typer.Option("--format", "-f", help="Output format.")
     ] = OutputFormat.TABLE,
-    top: Annotated[int, typer.Option(min=0, help="List at most N findings (0 = all).")] = 20,
+    top: Annotated[
+        int, typer.Option(min=0, help="List at most N findings or upgrades (0 = all).")
+    ] = 20,
+    view: Annotated[
+        View,
+        typer.Option(help="List findings, or upgrades grouped by fix (table and Markdown)."),
+    ] = View.FINDINGS,
     fail_on: Annotated[
         Priority | None,
         typer.Option(
@@ -122,6 +135,8 @@ def main(
     """Rank the findings of a vulnerability scan, with a reason for every decision."""
     if verbose and quiet:
         raise typer.BadParameter("--verbose and --quiet cannot be used together")
+    if view is View.FIXES and output_format is OutputFormat.SARIF:
+        raise typer.BadParameter("--view fixes is not available for SARIF output")
     _configure_logging(verbose=verbose, quiet=quiet)
     cache = None if no_cache else cache_dir or default_cache_dir()
     try:
@@ -136,7 +151,7 @@ def main(
                 policy=config.scoring,
                 target=target,
             )
-        reporter = REPORTERS[output_format](sarif_uri)
+        reporter = REPORTERS[output_format](view is View.FIXES, sarif_uri)
         _write(report, reporter, limit=top or None, output=output)
     except (ConfigError, SourceError, OSError) as exc:
         typer.echo(f"error: {exc}", err=True)
