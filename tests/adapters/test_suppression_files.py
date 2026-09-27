@@ -67,3 +67,10 @@ def test_trivyignore_ids_expiry_and_comment_reasons(caplog: pytest.LogCaptureFix
 def test_missing_trivyignore_is_a_source_error(tmp_path: Path) -> None:
     with pytest.raises(SourceError, match="cannot read"):
         load_trivyignore(tmp_path / ".trivyignore")
+
+
+def test_unknown_trivyignore_options_are_ignored(tmp_path: Path) -> None:
+    path = tmp_path / ".trivyignore"
+    path.write_text("CVE-2023-0006 future-option\n", encoding="utf-8")
+    [rule] = load_trivyignore(path)
+    assert (rule.vuln_id, rule.expires) == ("CVE-2023-0006", None)

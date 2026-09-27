@@ -96,12 +96,21 @@ class Component(DomainModel):
     ecosystem: str | None = None
 
 
+class VexAnalysis(DomainModel):
+    """A CycloneDX `analysis` block: the producer's own verdict on a vulnerability."""
+
+    state: NonEmptyStr
+    justification: str | None = None
+    detail: str | None = None
+
+
 class Vulnerability(DomainModel):
     vuln_id: AdvisoryId
     severity: Severity = Severity.UNKNOWN
     cvss_score: CvssScore | None = None
     fixed_version: str | None = None
     status: FixStatus | None = None
+    analysis: VexAnalysis | None = None
 
     @property
     def fix_available(self) -> bool:
@@ -181,6 +190,18 @@ class ScoredFinding(DomainModel):
         return "; ".join(reason.text for reason in self.reasons)
 
 
+class Suppressed(DomainModel):
+    """A finding left out of the ranking, and why."""
+
+    scored: ScoredFinding
+    reason: NonEmptyStr
+    source: NonEmptyStr
+
+    @property
+    def in_kev(self) -> bool:
+        return self.scored.enrichment.in_kev
+
+
 class Report(DomainModel):
     """The outcome of one run: ranked findings plus what happened on the way."""
 
@@ -189,6 +210,7 @@ class Report(DomainModel):
     duplicates_removed: int
     skipped: int = 0
     enrichment_issues: tuple[str, ...] = ()
+    suppressed: tuple[Suppressed, ...] = ()
 
     @property
     def counts(self) -> dict[Priority, int]:

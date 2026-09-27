@@ -17,6 +17,11 @@ Example:
     target = "ghcr.io/acme/*"     # glob patterns are tried in file order
     criticality = "high"
 
+    [[ignore]]                     # accept a risk, with a reason; optional expiry
+    package = "linux-libc-dev"
+    reason = "kernel headers: containers use the host kernel"
+    expires = 2026-12-31
+
 A scan target is matched by its exact name first, then by its name without tag or digest,
 then against glob patterns in the order they appear.
 """
@@ -30,6 +35,7 @@ from pydantic import Field, ValidationError, field_validator
 
 from vulnrank.domain.models import Asset, Criticality, DomainModel
 from vulnrank.domain.policy import ScoringPolicy
+from vulnrank.domain.suppression import IgnoreRule
 from vulnrank.domain.targets import image_repository
 
 
@@ -48,6 +54,7 @@ class Config(DomainModel):
     scoring: ScoringPolicy = Field(default_factory=ScoringPolicy)
     default_asset: AssetDefaults = Field(default_factory=AssetDefaults)
     assets: tuple[Asset, ...] = ()
+    ignore: tuple[IgnoreRule, ...] = ()
 
     @field_validator("assets")
     @classmethod
@@ -93,6 +100,8 @@ def load_config(path: Path) -> Config:
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"invalid TOML in {path}: {exc}") from exc
     try:
-        return Config.model_validate(data)
+        config = Config.model_validate(data)
     except ValidationError as exc:
         raise ConfigError(f"invalid config in {path}:\n{exc}") from exc
+    rules = tuple(rule.model_copy(update={"source": str(path)}) for rule in config.ignore)
+    return config.model_copy(update={"ignore": rules})

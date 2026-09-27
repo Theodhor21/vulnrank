@@ -22,6 +22,8 @@ from vulnrank.adapters.outputs.json_report import JsonReporter
 from vulnrank.adapters.outputs.markdown import MarkdownReporter
 from vulnrank.adapters.outputs.sarif import SarifReporter
 from vulnrank.adapters.outputs.table import TableReporter
+from vulnrank.adapters.suppressions.openvex import load_openvex
+from vulnrank.adapters.suppressions.trivyignore import load_trivyignore
 from vulnrank.application.service import AssetLookup, prioritise
 from vulnrank.config import Config, ConfigError, load_config
 from vulnrank.domain.models import Asset, Priority, Report
@@ -121,6 +123,14 @@ def main(
         str | None,
         typer.Option(help="Report findings under this name (and match assets against it)."),
     ] = None,
+    vex: Annotated[
+        list[Path] | None,
+        typer.Option("--vex", help="OpenVEX document; not_affected/fixed statements suppress."),
+    ] = None,
+    ignore_file: Annotated[
+        list[Path] | None,
+        typer.Option(help="A .trivyignore file; listed IDs are suppressed, with expiry."),
+    ] = None,
     strict: Annotated[
         bool,
         typer.Option("--strict", help="Exit with code 2 if EPSS or KEV data could not be loaded."),
@@ -142,6 +152,8 @@ def main(
     try:
         config = load_config(assets) if assets else Config()
         source = open_source(scan, input_format)
+        rules = config.ignore + tuple(r for f in ignore_file or () for r in load_trivyignore(f))
+        statements = tuple(s for f in vex or () for s in load_openvex(f))
         with _http_client() as http:
             report = prioritise(
                 source,
@@ -150,6 +162,8 @@ def main(
                 asset_for=_asset_lookup(config),
                 policy=config.scoring,
                 target=target,
+                rules=rules,
+                statements=statements,
             )
         reporter = REPORTERS[output_format](view is View.FIXES, sarif_uri)
         _write(report, reporter, limit=top or None, output=output)

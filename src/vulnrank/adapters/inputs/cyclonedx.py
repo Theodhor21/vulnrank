@@ -23,7 +23,14 @@ from vulnrank.adapters.inputs._common import (
     parse_severity,
     pick_cvss,
 )
-from vulnrank.domain.models import Component, Finding, ScanResult, Severity, Vulnerability
+from vulnrank.domain.models import (
+    Component,
+    Finding,
+    ScanResult,
+    Severity,
+    VexAnalysis,
+    Vulnerability,
+)
 from vulnrank.ports.sources import SourceError
 
 logger = logging.getLogger(__name__)
@@ -57,6 +64,12 @@ class _Affects(RawModel):
     versions: list[_AffectedVersion] = Field(default_factory=list[_AffectedVersion])
 
 
+class _Analysis(RawModel):
+    state: str | None = None
+    justification: str | None = None
+    detail: str | None = None
+
+
 class _Reference(RawModel):
     id: str | None = None
 
@@ -68,6 +81,7 @@ class _Vulnerability(RawModel):
     ratings: list[_Rating] = Field(default_factory=list[_Rating])
     recommendation: str | None = None
     affects: list[_Affects] = Field(default_factory=list[_Affects])
+    analysis: _Analysis | None = None
 
 
 class _Component(RawModel):
@@ -215,12 +229,22 @@ def _to_finding(
                 severity=_severity(vulnerability),
                 cvss_score=pick_cvss(_cvss_candidates(vulnerability.ratings), vulnerability.id),
                 fixed_version=_fixed_version(vulnerability, component, affects),
+                analysis=_analysis(vulnerability),
             ),
             target=target,
         )
     except ValidationError as exc:
         logger.warning("skipping malformed CycloneDX vulnerability %s: %s", where, describe(exc))
         return None
+
+
+def _analysis(vulnerability: _Vulnerability) -> VexAnalysis | None:
+    analysis = vulnerability.analysis
+    if analysis is None or not analysis.state:
+        return None
+    return VexAnalysis(
+        state=analysis.state, justification=analysis.justification, detail=analysis.detail
+    )
 
 
 def _severity(vulnerability: _Vulnerability) -> Severity:

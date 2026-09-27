@@ -129,6 +129,11 @@ def _statement(**kwargs: object) -> VexStatement:
             [("CVE-2024-0002", "openssl")],
             id="alias",
         ),
+        pytest.param(
+            {"products": ("pkg:oci/app?repository_url=ghcr.io/acme",)},
+            [("CVE-2024-0001", "openssl")],
+            id="image-only-product-matches-that-image",
+        ),
         pytest.param({"status": "affected"}, [], id="affected-is-kept"),
         pytest.param({"status": "under_investigation"}, [], id="under-investigation-is-kept"),
     ],

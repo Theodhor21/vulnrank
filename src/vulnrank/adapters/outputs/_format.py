@@ -67,6 +67,8 @@ def summary(report: Report) -> str:
         extras += f", {report.duplicates_removed} duplicates removed"
     if report.skipped:
         extras += f", {report.skipped} malformed records skipped"
+    if report.suppressed:
+        extras += f", {len(report.suppressed)} suppressed"
     return (
         f"{counts} ({len(report.findings)} unique findings from {report.scanned} records{extras})"
     )

@@ -4,11 +4,11 @@ import json
 from typing import TextIO
 
 from vulnrank.adapters.outputs._format import listed
-from vulnrank.domain.models import Report, ScoredFinding
+from vulnrank.domain.models import Report, ScoredFinding, Suppressed
 from vulnrank.domain.remediation import FixAction, plan_fixes
 
 # 2: "cve" became "id" (advisories without a CVE are kept); added fix_status, skipped,
-#    enrichment_issues and fix_plan.
+#    enrichment_issues, fix_plan and suppressed.
 SCHEMA_VERSION = 2
 
 
@@ -31,9 +31,25 @@ def to_document(report: Report, limit: int | None = None) -> dict[str, object]:
             "by_priority": {str(priority): count for priority, count in report.counts.items()},
             "targets": list(report.targets),
             "enrichment_issues": list(report.enrichment_issues),
+            "suppressed": len(report.suppressed),
         },
         "findings": [_finding(rank, scored) for rank, scored in enumerate(findings, start=1)],
         "fix_plan": _fix_plan(report, limit),
+        "suppressed": [_suppressed(s) for s in report.suppressed],
+    }
+
+
+def _suppressed(suppressed: Suppressed) -> dict[str, object]:
+    finding = suppressed.scored.finding
+    return {
+        "id": finding.vulnerability.vuln_id,
+        "target": finding.target,
+        "component": finding.component.name,
+        "version": finding.component.version,
+        "priority": str(suppressed.scored.priority),
+        "in_kev": suppressed.in_kev,
+        "reason": suppressed.reason,
+        "source": suppressed.source,
     }
 
 
