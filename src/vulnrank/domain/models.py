@@ -178,12 +178,30 @@ class Reason(DomainModel):
     tier: Priority | None = None
 
 
+class ChangeState(StrEnum):
+    """How a finding compares with a baseline report."""
+
+    NEW = "new"
+    ESCALATED = "escalated"
+    UNCHANGED = "unchanged"
+    IMPROVED = "improved"
+
+
+GATING_CHANGES = frozenset({ChangeState.NEW, ChangeState.ESCALATED})
+
+
+class Change(DomainModel):
+    state: ChangeState
+    previous: Priority | None = None
+
+
 class ScoredFinding(DomainModel):
     finding: Finding
     enrichment: Enrichment
     asset: Asset
     priority: Priority
     reasons: tuple[Reason, ...]
+    change: Change | None = None  # set when compared with a baseline
 
     @property
     def explanation(self) -> str:
@@ -211,6 +229,7 @@ class Report(DomainModel):
     skipped: int = 0
     enrichment_issues: tuple[str, ...] = ()
     suppressed: tuple[Suppressed, ...] = ()
+    baseline_resolved: int | None = None  # None: no baseline was given
 
     @property
     def counts(self) -> dict[Priority, int]:
@@ -224,4 +243,9 @@ class Report(DomainModel):
         return tuple(sorted({scored.finding.target for scored in self.findings}))
 
     def has_findings_at_or_above(self, threshold: Priority) -> bool:
-        return any(scored.priority.is_at_least(threshold) for scored in self.findings)
+        """The CI gate. Against a baseline, only new or escalated findings count."""
+        return any(
+            scored.priority.is_at_least(threshold)
+            and (scored.change is None or scored.change.state in GATING_CHANGES)
+            for scored in self.findings
+        )

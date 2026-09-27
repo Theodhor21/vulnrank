@@ -14,7 +14,7 @@ from typing import TextIO
 
 from vulnrank import __version__
 from vulnrank.adapters.outputs import _format as fmt
-from vulnrank.domain.models import Priority, Report, ScoredFinding
+from vulnrank.domain.models import ChangeState, Priority, Report, ScoredFinding
 from vulnrank.domain.targets import image_repository
 
 SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
@@ -23,6 +23,12 @@ FINGERPRINT_KEY = "vulnrankFinding/v1"
 
 SECURITY_SEVERITY = {Priority.P1: "9.5", Priority.P2: "8.0", Priority.P3: "5.5", Priority.P4: "2.0"}
 LEVEL = {Priority.P1: "error", Priority.P2: "error", Priority.P3: "warning", Priority.P4: "note"}
+BASELINE_STATE = {
+    ChangeState.NEW: "new",
+    ChangeState.ESCALATED: "updated",
+    ChangeState.IMPROVED: "updated",
+    ChangeState.UNCHANGED: "unchanged",
+}
 # SARIF needs a region even when the "file" is a container image.
 WHOLE_FILE = {"startLine": 1, "startColumn": 1, "endLine": 1, "endColumn": 1}
 
@@ -77,7 +83,7 @@ class SarifReporter:
         finding = scored.finding
         cve = finding.vulnerability.vuln_id
         uri = self._artifact_uri or artifact_uri_for(finding.target)
-        return {
+        result: dict[str, object] = {
             "ruleId": cve,
             "ruleIndex": rule_index[cve],
             "level": LEVEL[scored.priority],
@@ -105,6 +111,9 @@ class SarifReporter:
                 "version": finding.component.version,
             },
         }
+        if scored.change is not None:
+            result["baselineState"] = BASELINE_STATE[scored.change.state]
+        return result
 
 
 def _rule(cve: str, findings: tuple[ScoredFinding, ...]) -> dict[str, object]:

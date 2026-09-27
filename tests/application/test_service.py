@@ -6,6 +6,7 @@ import pytest
 
 from tests.builders import make_asset, make_finding
 from vulnrank.application.service import prioritise
+from vulnrank.domain.baseline import Baseline, ChangeState
 from vulnrank.domain.models import (
     Asset,
     Criticality,
@@ -15,7 +16,6 @@ from vulnrank.domain.models import (
     Priority,
     ScanResult,
 )
-from vulnrank.domain.baseline import Baseline, ChangeState
 from vulnrank.domain.policy import ScoringPolicy
 from vulnrank.domain.suppression import IgnoreRule, VexStatement, VexStatus
 

@@ -17,6 +17,7 @@ from vulnrank import __version__
 from vulnrank.adapters.enrichment.cache import JsonCache, default_cache_dir
 from vulnrank.adapters.enrichment.epss import EpssApiClient, EpssCsvFile
 from vulnrank.adapters.enrichment.kev import KevFeedClient, KevJsonFile
+from vulnrank.adapters.inputs.baseline import load_baseline
 from vulnrank.adapters.inputs.detect import InputFormat, open_source
 from vulnrank.adapters.outputs.json_report import JsonReporter
 from vulnrank.adapters.outputs.markdown import MarkdownReporter
@@ -131,6 +132,10 @@ def main(
         list[Path] | None,
         typer.Option(help="A .trivyignore file; listed IDs are suppressed, with expiry."),
     ] = None,
+    baseline: Annotated[
+        Path | None,
+        typer.Option(help="Earlier vulnrank JSON report; --fail-on then counts only changes."),
+    ] = None,
     strict: Annotated[
         bool,
         typer.Option("--strict", help="Exit with code 2 if EPSS or KEV data could not be loaded."),
@@ -154,6 +159,7 @@ def main(
         source = open_source(scan, input_format)
         rules = config.ignore + tuple(r for f in ignore_file or () for r in load_trivyignore(f))
         statements = tuple(s for f in vex or () for s in load_openvex(f))
+        previous = load_baseline(baseline) if baseline else None
         with _http_client() as http:
             report = prioritise(
                 source,
@@ -164,6 +170,7 @@ def main(
                 target=target,
                 rules=rules,
                 statements=statements,
+                baseline=previous,
             )
         reporter = REPORTERS[output_format](view is View.FIXES, sarif_uri)
         _write(report, reporter, limit=top or None, output=output)

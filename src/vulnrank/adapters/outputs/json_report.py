@@ -3,12 +3,12 @@
 import json
 from typing import TextIO
 
-from vulnrank.adapters.outputs._format import listed
+from vulnrank.adapters.outputs._format import baseline_counts, listed
 from vulnrank.domain.models import Report, ScoredFinding, Suppressed
 from vulnrank.domain.remediation import FixAction, plan_fixes
 
 # 2: "cve" became "id" (advisories without a CVE are kept); added fix_status, skipped,
-#    enrichment_issues, fix_plan and suppressed.
+#    enrichment_issues, fix_plan, suppressed, change and the baseline summary.
 SCHEMA_VERSION = 2
 
 
@@ -32,11 +32,19 @@ def to_document(report: Report, limit: int | None = None) -> dict[str, object]:
             "targets": list(report.targets),
             "enrichment_issues": list(report.enrichment_issues),
             "suppressed": len(report.suppressed),
+            "baseline": baseline_counts(report),
         },
         "findings": [_finding(rank, scored) for rank, scored in enumerate(findings, start=1)],
         "fix_plan": _fix_plan(report, limit),
         "suppressed": [_suppressed(s) for s in report.suppressed],
     }
+
+
+def _change(scored: ScoredFinding) -> dict[str, object] | None:
+    if scored.change is None:
+        return None
+    previous = scored.change.previous
+    return {"state": str(scored.change.state), "previous": str(previous) if previous else None}
 
 
 def _suppressed(suppressed: Suppressed) -> dict[str, object]:
@@ -95,6 +103,7 @@ def _finding(rank: int, scored: ScoredFinding) -> dict[str, object]:
         "kev_date_added": added.isoformat() if added else None,
         "fixed_version": vulnerability.fixed_version,
         "fix_status": str(vulnerability.status) if vulnerability.status else None,
+        "change": _change(scored),
         "asset": {
             "criticality": str(scored.asset.criticality),
             "internet_exposed": scored.asset.internet_exposed,

@@ -39,6 +39,8 @@ class TableReporter:
             if note := fmt.truncation_note(len(report.findings), limit):
                 console.print(note, style="dim")
             console.print(fmt.summary(report))
+            if since := fmt.baseline_summary(report):
+                console.print(since)
         if warning := fmt.enrichment_warning(report):
             console.print(warning, style="bold yellow")
 
@@ -102,8 +104,11 @@ def _unfixable_table(unfixable: tuple[ScoredFinding, ...]) -> Table:
 def _table(report: Report, limit: int | None, *, compact: bool) -> Table:
     show_target = len(report.targets) > 1 and not compact
     table = Table(title=_title(report, "vulnrank"), title_justify="left")
+    compared = report.baseline_resolved is not None
     table.add_column("#", justify="right", style="dim")
     table.add_column("Tier", no_wrap=True)
+    if compared:
+        table.add_column("Change", no_wrap=True)
     table.add_column("ID", no_wrap=True)
     table.add_column("Component", overflow="fold")
     if show_target:
@@ -115,7 +120,10 @@ def _table(report: Report, limit: int | None, *, compact: bool) -> Table:
         table.add_column("Fix", overflow="fold")
     table.add_column("Why", ratio=1, overflow="fold")
     for rank, scored in enumerate(fmt.listed(report.findings, limit), start=1):
-        table.add_row(*_cells(rank, scored, show_target=show_target, compact=compact))
+        cells = _cells(rank, scored, show_target=show_target, compact=compact)
+        if compared:
+            cells.insert(2, fmt.change(scored))
+        table.add_row(*cells)
     return table
 
 

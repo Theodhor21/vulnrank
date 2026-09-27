@@ -5,6 +5,7 @@ from collections.abc import Callable
 from datetime import date
 
 from vulnrank.application.enrichment import enrich
+from vulnrank.domain.baseline import Baseline, compare_to_baseline
 from vulnrank.domain.dedup import deduplicate
 from vulnrank.domain.models import Asset, Finding, Report
 from vulnrank.domain.policy import ScoringPolicy
@@ -29,6 +30,7 @@ def prioritise(
     rules: tuple[IgnoreRule, ...] = (),
     statements: tuple[VexStatement, ...] = (),
     today: date | None = None,
+    baseline: Baseline | None = None,
 ) -> Report:
     """`target`, when given, replaces the scan's own name (e.g. a file name) on every finding.
 
@@ -62,8 +64,19 @@ def prioritise(
                 suppressed.source,
                 suppressed.reason,
             )
+    ranked = tuple(rank(result.kept))
+    resolved: int | None = None
+    if baseline is not None:
+        if not baseline.complete:
+            logger.warning(
+                "the baseline does not list every finding (it was written with --top); "
+                "findings missing from it count as new"
+            )
+        comparison = compare_to_baseline(ranked, baseline)
+        ranked, resolved = comparison.findings, comparison.resolved
     return Report(
-        findings=tuple(rank(result.kept)),
+        findings=ranked,
+        baseline_resolved=resolved,
         suppressed=result.suppressed,
         scanned=scanned,
         skipped=loaded.skipped,

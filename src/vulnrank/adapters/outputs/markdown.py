@@ -21,8 +21,13 @@ class MarkdownReporter:
 
 def render(report: Report, limit: int | None = None) -> str:
     lines = _heading(report, "vulnrank", fmt.summary(report))
+    if since := fmt.baseline_summary(report):
+        lines[3:3] = ["", since]  # right under the summary line
+    compared = report.baseline_resolved is not None
+    header = (*HEADER[:2], *(["Change"] if compared else []), *HEADER[2:])
     findings = fmt.listed(report.findings, limit)
-    lines += _table(HEADER, [_cells(rank, s) for rank, s in enumerate(findings, start=1)])
+    rows = [_cells(rank, s, compared=compared) for rank, s in enumerate(findings, start=1)]
+    lines += _table(header, rows)
     if note := fmt.truncation_note(len(report.findings), limit):
         lines.extend([f"_{note}_", ""])
     return "\n".join(lines)
@@ -95,10 +100,11 @@ def _unfixable_cells(scored: ScoredFinding) -> tuple[str, ...]:
     )
 
 
-def _cells(rank: int, scored: ScoredFinding) -> tuple[str, ...]:
+def _cells(rank: int, scored: ScoredFinding, *, compared: bool) -> tuple[str, ...]:
     return (
         str(rank),
         f"**{scored.priority}**",
+        *([fmt.change(scored)] if compared else []),
         _link(scored.finding.vulnerability.vuln_id),
         _escape(fmt.component(scored)),
         fmt.epss(scored),

@@ -1,8 +1,9 @@
 """Display helpers shared by the human-readable reporters."""
 
+from collections import Counter
 from collections.abc import Callable
 
-from vulnrank.domain.models import FixStatus, Priority, Report, ScoredFinding
+from vulnrank.domain.models import ChangeState, FixStatus, Priority, Report, ScoredFinding
 from vulnrank.domain.remediation import FixAction, FixPlan
 
 NOT_AVAILABLE = "-"
@@ -72,6 +73,33 @@ def summary(report: Report) -> str:
     return (
         f"{counts} ({len(report.findings)} unique findings from {report.scanned} records{extras})"
     )
+
+
+def baseline_counts(report: Report) -> dict[str, int] | None:
+    if report.baseline_resolved is None:
+        return None
+    states = Counter(s.change.state for s in report.findings if s.change is not None)
+    counts = {str(state): states[state] for state in ChangeState}
+    return {**counts, "resolved": report.baseline_resolved}
+
+
+def baseline_summary(report: Report) -> str | None:
+    """`Since baseline: 1 new, 1 escalated, 0 improved, 2 resolved`"""
+    counts = baseline_counts(report)
+    if counts is None:
+        return None
+    shown = ("new", "escalated", "improved", "resolved")
+    return "Since baseline: " + ", ".join(f"{counts[key]} {key}" for key in shown)
+
+
+def change(scored: ScoredFinding) -> str:
+    """`new`, `↑ from P3`, `↓ from P1`, or nothing when unchanged."""
+    if scored.change is None or scored.change.state is ChangeState.UNCHANGED:
+        return ""
+    if scored.change.state is ChangeState.NEW:
+        return "new"
+    arrow = "↑" if scored.change.state is ChangeState.ESCALATED else "↓"
+    return f"{arrow} from {scored.change.previous}"
 
 
 def enrichment_warning(report: Report) -> str | None:
