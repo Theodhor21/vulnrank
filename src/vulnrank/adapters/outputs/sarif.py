@@ -15,10 +15,10 @@ from typing import TextIO
 from vulnrank import __version__
 from vulnrank.adapters.outputs import _format as fmt
 from vulnrank.domain.models import Priority, Report, ScoredFinding
+from vulnrank.domain.targets import image_repository
 
 SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 INFORMATION_URI = "https://github.com/Theodhor21/vulnrank"
-NVD_URL = "https://nvd.nist.gov/vuln/detail/"
 FINGERPRINT_KEY = "vulnrankFinding/v1"
 
 SECURITY_SEVERITY = {Priority.P1: "9.5", Priority.P2: "8.0", Priority.P3: "5.5", Priority.P4: "2.0"}
@@ -30,8 +30,12 @@ _UNSAFE_URI_CHARACTERS = re.compile(r"[^A-Za-z0-9._/-]")
 
 
 def artifact_uri_for(target: str) -> str:
-    """A relative path for a scan target; `nginx:1.19` would otherwise parse as a URI scheme."""
-    return _UNSAFE_URI_CHARACTERS.sub("-", target).lstrip("/")
+    """A relative path for a scan target, without its tag or digest.
+
+    Dropping the tag keeps alerts attached to the same "file" across builds, and a raw
+    `nginx:1.19` would otherwise parse as a URI scheme.
+    """
+    return _UNSAFE_URI_CHARACTERS.sub("-", image_repository(target)).lstrip("/")
 
 
 class SarifReporter:
@@ -44,7 +48,7 @@ class SarifReporter:
 
     def to_document(self, report: Report, limit: int | None = None) -> dict[str, object]:
         findings = fmt.listed(report, limit)
-        rule_ids = list(dict.fromkeys(f.finding.vulnerability.cve_id for f in findings))
+        rule_ids = list(dict.fromkeys(f.finding.vulnerability.vuln_id for f in findings))
         rule_index = {cve: index for index, cve in enumerate(rule_ids)}
         return {
             "$schema": SCHEMA,
@@ -71,7 +75,7 @@ class SarifReporter:
         self, rank: int, scored: ScoredFinding, rule_index: dict[str, int]
     ) -> dict[str, object]:
         finding = scored.finding
-        cve = finding.vulnerability.cve_id
+        cve = finding.vulnerability.vuln_id
         uri = self._artifact_uri or artifact_uri_for(finding.target)
         return {
             "ruleId": cve,
@@ -105,13 +109,13 @@ class SarifReporter:
 
 def _rule(cve: str, findings: tuple[ScoredFinding, ...]) -> dict[str, object]:
     most_urgent = min(
-        (f.priority for f in findings if f.finding.vulnerability.cve_id == cve),
+        (f.priority for f in findings if f.finding.vulnerability.vuln_id == cve),
         key=lambda priority: priority.rank,
     )
     return {
         "id": cve,
         "shortDescription": {"text": cve},
-        "helpUri": f"{NVD_URL}{cve}",
+        "helpUri": fmt.advisory_url(cve),
         "properties": {
             "tags": ["security", "vulnerability"],
             "security-severity": SECURITY_SEVERITY[most_urgent],
@@ -120,6 +124,7 @@ def _rule(cve: str, findings: tuple[ScoredFinding, ...]) -> dict[str, object]:
 
 
 def _fingerprint(scored: ScoredFinding) -> str:
-    """Identity only (target, component, version, CVE), so alerts survive re-ranking."""
-    identity = "\x1f".join(scored.finding.key)
+    """Identity only, without the image tag, so alerts survive re-ranking and new builds."""
+    target, name, version, vuln_id = scored.finding.key
+    identity = "\x1f".join((image_repository(target), name, version, vuln_id))
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32]

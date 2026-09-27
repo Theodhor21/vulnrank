@@ -7,7 +7,9 @@ from typing import Annotated, Self
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
-_CVE_ID = re.compile(r"CVE-\d{4}-\d{4,}")
+_CVE_ID = re.compile(r"CVE-\d{4}-\d{4,12}")
+# Other advisory databases: GHSA-xxxx-xxxx-xxxx, PYSEC-2021-19, GO-2022-0493, ...
+_ADVISORY_ID = re.compile(r"[A-Z][A-Z0-9]{1,15}-[A-Za-z0-9][A-Za-z0-9._:-]{2,62}")
 
 
 def _normalise_cve_id(value: str) -> str:
@@ -17,7 +19,20 @@ def _normalise_cve_id(value: str) -> str:
     return normalised
 
 
+def _normalise_advisory_id(value: str) -> str:
+    """CVE IDs are validated strictly; other IDs keep their case after an upper-case prefix."""
+    stripped = value.strip()
+    prefix, dash, rest = stripped.partition("-")
+    if prefix.upper() == "CVE":
+        return _normalise_cve_id(stripped)
+    normalised = f"{prefix.upper()}{dash}{rest}"
+    if not _ADVISORY_ID.fullmatch(normalised):
+        raise ValueError(f"not a valid advisory ID: {value!r}")
+    return normalised
+
+
 CveId = Annotated[str, AfterValidator(_normalise_cve_id)]
+AdvisoryId = Annotated[str, AfterValidator(_normalise_advisory_id)]
 Probability = Annotated[float, Field(ge=0.0, le=1.0)]
 CvssScore = Annotated[float, Field(ge=0.0, le=10.0)]
 NonEmptyStr = Annotated[str, Field(min_length=1)]
@@ -46,6 +61,18 @@ class Criticality(StrEnum):
         return members.index(self) >= members.index(other)
 
 
+class FixStatus(StrEnum):
+    """The vendor's fix status, as Trivy reports it."""
+
+    FIXED = "fixed"
+    AFFECTED = "affected"
+    WILL_NOT_FIX = "will_not_fix"
+    FIX_DEFERRED = "fix_deferred"
+    END_OF_LIFE = "end_of_life"
+    NOT_AFFECTED = "not_affected"
+    UNDER_INVESTIGATION = "under_investigation"
+
+
 class Priority(StrEnum):
     P1 = "P1"
     P2 = "P2"
@@ -70,14 +97,20 @@ class Component(DomainModel):
 
 
 class Vulnerability(DomainModel):
-    cve_id: CveId
+    vuln_id: AdvisoryId
     severity: Severity = Severity.UNKNOWN
     cvss_score: CvssScore | None = None
     fixed_version: str | None = None
+    status: FixStatus | None = None
 
     @property
     def fix_available(self) -> bool:
         return bool(self.fixed_version)
+
+    @property
+    def is_cve(self) -> bool:
+        """EPSS and CISA KEV only cover CVE IDs."""
+        return self.vuln_id.startswith("CVE-")
 
 
 FindingKey = tuple[str, str, str, str]
@@ -90,13 +123,20 @@ class Finding(DomainModel):
 
     @property
     def key(self) -> FindingKey:
-        """Identity used for deduplication: same CVE in the same component and target."""
+        """Identity used for deduplication: same advisory in the same component and target."""
         return (
             self.target,
             self.component.name,
             self.component.version,
-            self.vulnerability.cve_id,
+            self.vulnerability.vuln_id,
         )
+
+
+class ScanResult(DomainModel):
+    """What an input adapter produced: valid findings plus how many records it had to skip."""
+
+    findings: tuple[Finding, ...]
+    skipped: int = 0
 
 
 class Asset(DomainModel):
@@ -147,6 +187,8 @@ class Report(DomainModel):
     findings: tuple[ScoredFinding, ...]
     scanned: int
     duplicates_removed: int
+    skipped: int = 0
+    enrichment_issues: tuple[str, ...] = ()
 
     @property
     def counts(self) -> dict[Priority, int]:

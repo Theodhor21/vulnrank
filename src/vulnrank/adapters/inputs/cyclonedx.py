@@ -3,6 +3,8 @@
 Trivy produces one with `trivy image --scanners vuln --format cyclonedx`. CycloneDX has no
 field for the fixed version, so it is taken from Trivy's recommendation text
 ("Upgrade <pkg> to version <x>") or, failing that, an `unaffected` version in `affects`.
+An advisory without a CVE ID (e.g. GHSA) is filed under a CVE listed in its `references`,
+when there is one, so that EPSS and KEV can be looked up.
 """
 
 import logging
@@ -21,7 +23,7 @@ from vulnrank.adapters.inputs._common import (
     parse_severity,
     pick_cvss,
 )
-from vulnrank.domain.models import Component, Finding, Severity, Vulnerability
+from vulnrank.domain.models import Component, Finding, ScanResult, Severity, Vulnerability
 from vulnrank.ports.sources import SourceError
 
 logger = logging.getLogger(__name__)
@@ -55,8 +57,13 @@ class _Affects(RawModel):
     versions: list[_AffectedVersion] = Field(default_factory=list[_AffectedVersion])
 
 
+class _Reference(RawModel):
+    id: str | None = None
+
+
 class _Vulnerability(RawModel):
     id: str
+    references: list[_Reference] = Field(default_factory=list[_Reference])
     source: _Source | None = None
     ratings: list[_Rating] = Field(default_factory=list[_Rating])
     recommendation: str | None = None
@@ -99,11 +106,11 @@ class CycloneDxSource:
     def __init__(self, path: Path) -> None:
         self._path = path
 
-    def load(self) -> list[Finding]:
+    def load(self) -> ScanResult:
         return parse_cyclonedx(read_json(self._path), default_target=self._path.name)
 
 
-def parse_cyclonedx(document: object, *, default_target: str) -> list[Finding]:
+def parse_cyclonedx(document: object, *, default_target: str) -> ScanResult:
     try:
         bom = _Bom.model_validate(document)
     except ValidationError as exc:
@@ -113,13 +120,17 @@ def parse_cyclonedx(document: object, *, default_target: str) -> list[Finding]:
             "the SBOM has no vulnerabilities section; with Trivy, generate it with "
             "`--scanners vuln`"
         )
-        return []
+        return ScanResult(findings=())
     target = _target_name(bom) or default_target
     components = _index_components(bom.components, "components")
     findings: list[Finding] = []
+    skipped = 0
     for index, raw in enumerate(bom.vulnerabilities):
-        findings.extend(_parse_vulnerability(raw, components, target, f"vulnerabilities[{index}]"))
-    return findings
+        where = f"vulnerabilities[{index}]"
+        parsed, dropped = _parse_vulnerability(raw, components, target, where)
+        findings.extend(parsed)
+        skipped += dropped
+    return ScanResult(findings=tuple(findings), skipped=skipped)
 
 
 def _target_name(bom: _Bom) -> str | None:
@@ -151,29 +162,33 @@ def _walk_components(raw_components: list[object], where: str) -> Iterator[_Comp
 
 def _parse_vulnerability(
     raw: object, components: dict[str, _Component], target: str, where: str
-) -> list[Finding]:
+) -> tuple[list[Finding], int]:
+    """The findings of one vulnerability (one per affected component) and how many were skipped."""
     try:
         vulnerability = _Vulnerability.model_validate(raw)
     except ValidationError as exc:
         logger.warning("skipping malformed CycloneDX vulnerability %s: %s", where, describe(exc))
-        return []
-    if not is_cve(vulnerability.id):
-        logger.info(
-            "skipping %s at %s: not a CVE ID (EPSS and KEV cover CVEs only)",
-            vulnerability.id,
-            where,
-        )
-        return []
+        return [], 1
     if not vulnerability.affects:
         logger.warning("skipping CycloneDX vulnerability %s: no affected components", where)
-        return []
+        return [], 1
     findings: list[Finding] = []
     for position, affects in enumerate(vulnerability.affects):
         location = f"{where}.affects[{position}]"
         finding = _to_finding(vulnerability, affects, components, target, location)
         if finding is not None:
             findings.append(finding)
-    return findings
+    return findings, len(vulnerability.affects) - len(findings)
+
+
+def _advisory_id(vulnerability: _Vulnerability) -> str:
+    """Prefer a CVE alias from `references`, so EPSS and KEV can be looked up."""
+    if is_cve(vulnerability.id):
+        return vulnerability.id
+    for reference in vulnerability.references:
+        if reference.id and is_cve(reference.id):
+            return reference.id
+    return vulnerability.id
 
 
 def _to_finding(
@@ -196,9 +211,9 @@ def _to_finding(
                 ecosystem=ecosystem_from_purl(component.purl),
             ),
             vulnerability=Vulnerability(
-                cve_id=vulnerability.id,
+                vuln_id=_advisory_id(vulnerability),
                 severity=_severity(vulnerability),
-                cvss_score=pick_cvss(_cvss_candidates(vulnerability.ratings)),
+                cvss_score=pick_cvss(_cvss_candidates(vulnerability.ratings), vulnerability.id),
                 fixed_version=_fixed_version(vulnerability, component, affects),
             ),
             target=target,

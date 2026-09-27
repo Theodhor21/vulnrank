@@ -7,12 +7,14 @@ from vulnrank.ports.enrichment import ExploitProbability, KnownExploitedCatalog
 
 
 def enrich(
-    cve_ids: Iterable[str], epss: ExploitProbability, kev: KnownExploitedCatalog
+    vuln_ids: Iterable[str], epss: ExploitProbability, kev: KnownExploitedCatalog
 ) -> dict[str, Enrichment]:
-    unique = sorted(set(cve_ids))
-    scores = epss.scores(unique)
-    known = kev.lookup(unique)
-    return {cve: _combine(scores.get(cve), known.get(cve)) for cve in unique}
+    """One Enrichment per advisory ID; only CVE IDs are looked up (EPSS and KEV cover CVEs)."""
+    unique = sorted(set(vuln_ids))
+    cves = [vuln_id for vuln_id in unique if vuln_id.startswith("CVE-")]
+    scores = epss.scores(cves)
+    known = kev.lookup(cves)
+    return {vuln_id: _combine(scores.get(vuln_id), known.get(vuln_id)) for vuln_id in unique}
 
 
 def _combine(score: EpssScore | None, kev: KevEntry | None) -> Enrichment:

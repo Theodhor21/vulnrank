@@ -2,7 +2,7 @@
 
 from typing import Protocol
 
-from vulnrank.domain.models import Finding
+from vulnrank.domain.models import ScanResult
 
 
 class SourceError(Exception):
@@ -10,6 +10,6 @@ class SourceError(Exception):
 
 
 class FindingSource(Protocol):
-    def load(self) -> list[Finding]:
-        """Return every valid finding; malformed records are logged and skipped."""
+    def load(self) -> ScanResult:
+        """Every valid finding; malformed records are logged, skipped and counted."""
         ...

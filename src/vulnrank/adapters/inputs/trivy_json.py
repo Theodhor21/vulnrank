@@ -9,11 +9,10 @@ from vulnrank.adapters._raw import RawModel, describe, read_json
 from vulnrank.adapters.inputs._common import (
     CvssCandidate,
     ecosystem_from_purl,
-    is_cve,
     parse_severity,
     pick_cvss,
 )
-from vulnrank.domain.models import Component, Finding, Vulnerability
+from vulnrank.domain.models import Component, Finding, FixStatus, ScanResult, Vulnerability
 from vulnrank.ports.sources import SourceError
 
 logger = logging.getLogger(__name__)
@@ -35,7 +34,8 @@ class _Vulnerability(RawModel):
     fixed_version: str | None = Field(default=None, alias="FixedVersion")
     severity: str | None = Field(default=None, alias="Severity")
     pkg_identifier: _PkgIdentifier | None = Field(default=None, alias="PkgIdentifier")
-    cvss: dict[str, _Cvss] = Field(default_factory=dict[str, _Cvss], alias="CVSS")
+    cvss: dict[str, _Cvss] | None = Field(default=None, alias="CVSS")
+    status: str | None = Field(default=None, alias="Status")
 
 
 class _Result(RawModel):
@@ -54,48 +54,45 @@ class TrivyJsonSource:
     def __init__(self, path: Path) -> None:
         self._path = path
 
-    def load(self) -> list[Finding]:
+    def load(self) -> ScanResult:
         return parse_trivy_report(read_json(self._path), default_target=self._path.name)
 
 
-def parse_trivy_report(document: object, *, default_target: str) -> list[Finding]:
+def parse_trivy_report(document: object, *, default_target: str) -> ScanResult:
     try:
         report = _Report.model_validate(document)
     except ValidationError as exc:
         raise SourceError(f"not a Trivy JSON report ({describe(exc)})") from exc
     target = report.artifact_name or default_target
     findings: list[Finding] = []
+    skipped = 0
     for index, raw_result in enumerate(report.results):
-        findings.extend(_parse_result(raw_result, target, f"Results[{index}]"))
-    return findings
+        result_findings, result_skipped = _parse_result(raw_result, target, f"Results[{index}]")
+        findings.extend(result_findings)
+        skipped += result_skipped
+    return ScanResult(findings=tuple(findings), skipped=skipped)
 
 
-def _parse_result(raw: object, target: str, where: str) -> list[Finding]:
+def _parse_result(raw: object, target: str, where: str) -> tuple[list[Finding], int]:
+    """The valid findings of one result block, and how many of its records were skipped."""
     try:
         result = _Result.model_validate(raw)
     except ValidationError as exc:
         logger.warning("skipping malformed Trivy result %s: %s", where, describe(exc))
-        return []
+        return [], 1
     findings: list[Finding] = []
-    for index, raw_vulnerability in enumerate(result.vulnerabilities or []):
+    raw_vulnerabilities = result.vulnerabilities or []
+    for index, raw_vulnerability in enumerate(raw_vulnerabilities):
         location = f"{where}.Vulnerabilities[{index}]"
         finding = _parse_vulnerability(raw_vulnerability, result, target, location)
         if finding is not None:
             findings.append(finding)
-    return findings
+    return findings, len(raw_vulnerabilities) - len(findings)
 
 
 def _parse_vulnerability(raw: object, result: _Result, target: str, where: str) -> Finding | None:
     try:
-        vulnerability = _Vulnerability.model_validate(raw)
-        if not is_cve(vulnerability.vulnerability_id):
-            logger.info(
-                "skipping %s at %s: not a CVE ID (EPSS and KEV cover CVEs only)",
-                vulnerability.vulnerability_id,
-                where,
-            )
-            return None
-        return _to_finding(vulnerability, result, target)
+        return _to_finding(_Vulnerability.model_validate(raw), result, target)
     except ValidationError as exc:
         logger.warning("skipping malformed Trivy vulnerability %s: %s", where, describe(exc))
         return None
@@ -103,6 +100,7 @@ def _parse_vulnerability(raw: object, result: _Result, target: str, where: str) 
 
 def _to_finding(vulnerability: _Vulnerability, result: _Result, target: str) -> Finding:
     purl = vulnerability.pkg_identifier.purl if vulnerability.pkg_identifier else None
+    candidates = _cvss_candidates(vulnerability.cvss or {})
     return Finding(
         component=Component(
             name=vulnerability.pkg_name,
@@ -111,13 +109,21 @@ def _to_finding(vulnerability: _Vulnerability, result: _Result, target: str) -> 
             ecosystem=ecosystem_from_purl(purl) or result.type,
         ),
         vulnerability=Vulnerability(
-            cve_id=vulnerability.vulnerability_id,
+            vuln_id=vulnerability.vulnerability_id,
             severity=parse_severity(vulnerability.severity),
-            cvss_score=pick_cvss(_cvss_candidates(vulnerability.cvss)),
+            cvss_score=pick_cvss(candidates, context=vulnerability.vulnerability_id),
             fixed_version=vulnerability.fixed_version or None,
+            status=_fix_status(vulnerability.status),
         ),
         target=target,
     )
+
+
+def _fix_status(value: str | None) -> FixStatus | None:
+    try:
+        return FixStatus(value) if value else None
+    except ValueError:
+        return None
 
 
 def _cvss_candidates(cvss: dict[str, _Cvss]) -> list[CvssCandidate]:

@@ -1,8 +1,14 @@
 """Display helpers shared by the human-readable reporters."""
 
-from vulnrank.domain.models import Priority, Report, ScoredFinding
+from vulnrank.domain.models import FixStatus, Priority, Report, ScoredFinding
 
 NOT_AVAILABLE = "-"
+
+NO_FIX_LABELS = {
+    FixStatus.WILL_NOT_FIX: "no fix (will not fix)",
+    FixStatus.FIX_DEFERRED: "no fix (deferred)",
+    FixStatus.END_OF_LIFE: "no fix (end-of-life)",
+}
 
 PRIORITY_STYLES = {
     Priority.P1: "bold white on red",
@@ -30,7 +36,20 @@ def component(scored: ScoredFinding) -> str:
 
 
 def fix(scored: ScoredFinding) -> str:
-    return scored.finding.vulnerability.fixed_version or "no fix"
+    vulnerability = scored.finding.vulnerability
+    if vulnerability.fixed_version:
+        return vulnerability.fixed_version
+    status = vulnerability.status
+    return NO_FIX_LABELS.get(status, "no fix") if status else "no fix"
+
+
+def advisory_url(vuln_id: str) -> str:
+    """NVD for CVEs, GitHub for GHSA, OSV for everything else."""
+    if vuln_id.startswith("CVE-"):
+        return f"https://nvd.nist.gov/vuln/detail/{vuln_id}"
+    if vuln_id.startswith("GHSA-"):
+        return f"https://github.com/advisories/{vuln_id}"
+    return f"https://osv.dev/vulnerability/{vuln_id}"
 
 
 def decisive_reasons(scored: ScoredFinding) -> str:
@@ -40,12 +59,20 @@ def decisive_reasons(scored: ScoredFinding) -> str:
 
 def summary(report: Report) -> str:
     counts = " · ".join(f"{priority}: {count}" for priority, count in report.counts.items())
-    removed = report.duplicates_removed
-    duplicates = f", {removed} duplicates removed" if removed else ""
+    extras = ""
+    if report.duplicates_removed:
+        extras += f", {report.duplicates_removed} duplicates removed"
+    if report.skipped:
+        extras += f", {report.skipped} malformed records skipped"
     return (
-        f"{counts} ({len(report.findings)} unique findings "
-        f"from {report.scanned} scanned{duplicates})"
+        f"{counts} ({len(report.findings)} unique findings from {report.scanned} records{extras})"
     )
+
+
+def enrichment_warning(report: Report) -> str | None:
+    if not report.enrichment_issues:
+        return None
+    return "Warning: enrichment incomplete: " + "; ".join(report.enrichment_issues)
 
 
 def listed(report: Report, limit: int | None) -> tuple[ScoredFinding, ...]:

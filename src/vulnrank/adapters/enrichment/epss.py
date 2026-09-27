@@ -17,7 +17,7 @@ from pathlib import Path
 import httpx
 from pydantic import ValidationError
 
-from vulnrank.adapters._raw import RawModel, describe
+from vulnrank.adapters._raw import RawModel, decode_text, describe
 from vulnrank.adapters.enrichment._http import Sleep, get_json
 from vulnrank.adapters.enrichment.cache import JsonCache
 from vulnrank.domain.models import EpssScore
@@ -89,15 +89,21 @@ class EpssApiClient:
         self._offline = offline
         self._url = url
         self._sleep = sleep
+        self._issues: list[str] = []
 
     def scores(self, cve_ids: Collection[str]) -> Mapping[str, EpssScore]:
         cached, missing = self._from_cache(sorted(set(cve_ids)))
         if not missing:
             return cached
         if self._offline:
-            logger.warning("offline: no cached EPSS score for %d CVE(s)", len(missing))
+            issue = f"offline: no cached EPSS score for {len(missing)} CVE(s)"
+            logger.warning(issue)
+            self._issues.append(issue)
             return cached
         return {**cached, **self._fetch_all(missing)}
+
+    def issues(self) -> tuple[str, ...]:
+        return tuple(self._issues)
 
     def _from_cache(self, cve_ids: list[str]) -> tuple[dict[str, EpssScore], list[str]]:
         """Split into usable cached scores and CVEs that still need a lookup."""
@@ -128,6 +134,10 @@ class EpssApiClient:
             scores = self._request(batch)
         except (httpx.HTTPError, ValueError) as exc:
             logger.warning("EPSS lookup failed for %d CVE(s): %s", len(batch), exc)
+            if uncovered := sum(1 for cve in batch if not self._cached(cve)):
+                self._issues.append(
+                    f"EPSS lookup failed for {uncovered} CVE(s) (no cached scores to fall back on)"
+                )
             return self._stale(batch)
         if self._cache:
             # Cache misses too (as null) so CVEs without a score are not re-queried every run.
@@ -141,6 +151,10 @@ class EpssApiClient:
         requested = set(batch)
         scores = parse_rows(response.data, "response.data")
         return {cve: score for cve, score in scores.items() if cve in requested}
+
+    def _cached(self, cve: str) -> bool:
+        """Any cache entry counts, including "FIRST has no score for this CVE"."""
+        return self._cache is not None and self._cache.get(cve) is not None
 
     def _stale(self, batch: list[str]) -> dict[str, EpssScore]:
         stale: dict[str, EpssScore] = {}
@@ -177,6 +191,11 @@ class EpssCsvFile:
         all_scores = self._load()
         return {cve: all_scores[cve] for cve in cve_ids if cve in all_scores}
 
+    def issues(self) -> tuple[str, ...]:
+        if self._scores is not None and not self._scores:
+            return (f"no valid EPSS rows in {self._path}",)
+        return ()
+
     def _load(self) -> dict[str, EpssScore]:
         if self._scores is None:
             lines = (line for line in self._read_text().splitlines() if not line.startswith("#"))
@@ -188,6 +207,6 @@ class EpssCsvFile:
             raw = self._path.read_bytes()
             if self._path.suffix == ".gz":
                 raw = gzip.decompress(raw)
-            return raw.decode("utf-8")
-        except (OSError, EOFError, UnicodeDecodeError) as exc:
+        except (OSError, EOFError) as exc:
             raise SourceError(f"cannot read EPSS file {self._path}: {exc}") from exc
+        return decode_text(raw, self._path)

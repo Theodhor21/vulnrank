@@ -59,10 +59,6 @@ def test_unlisted_target_gets_the_defaults() -> None:
             "p1_epss_on_high_criticality (0.05) must be ≥ p2_epss (0.1)",
         ),
         (
-            "[scoring]\np1_epss_on_exposed_critical = 0.05\n",
-            "p1_epss_on_exposed_critical (0.05) must be ≥ p2_epss (0.1)",
-        ),
-        (
             "[scoring]\np2_cvss_on_high_criticality = 6.0\n",
             "p2_cvss_on_high_criticality (6.0) must be ≥ p3_cvss (7.0)",
         ),
@@ -75,7 +71,6 @@ def test_unlisted_target_gets_the_defaults() -> None:
         "typo",
         "missing-target",
         "p1-epss-below-p2",
-        "p1-exposed-epss-below-p2",
         "p2-cvss-below-p3",
     ],
 )

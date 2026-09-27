@@ -22,12 +22,14 @@ from vulnrank.adapters.outputs.json_report import JsonReporter
 from vulnrank.adapters.outputs.markdown import MarkdownReporter
 from vulnrank.adapters.outputs.sarif import SarifReporter
 from vulnrank.adapters.outputs.table import TableReporter
-from vulnrank.application.service import prioritise
+from vulnrank.application.service import AssetLookup, prioritise
 from vulnrank.config import Config, ConfigError, load_config
-from vulnrank.domain.models import Priority, Report
+from vulnrank.domain.models import Asset, Priority, Report
 from vulnrank.ports.enrichment import ExploitProbability, KnownExploitedCatalog
 from vulnrank.ports.reporting import Reporter
 from vulnrank.ports.sources import SourceError
+
+logger = logging.getLogger(__name__)
 
 EXIT_OK = 0
 EXIT_FINDINGS = 1
@@ -102,6 +104,14 @@ def main(
         str | None,
         typer.Option(help="Repository file SARIF alerts point to, e.g. your Dockerfile."),
     ] = None,
+    target: Annotated[
+        str | None,
+        typer.Option(help="Report findings under this name (and match assets against it)."),
+    ] = None,
+    strict: Annotated[
+        bool,
+        typer.Option("--strict", help="Exit with code 2 if EPSS or KEV data could not be loaded."),
+    ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Show info logs.")] = False,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only show errors.")] = False,
     _version: Annotated[
@@ -110,6 +120,8 @@ def main(
     ] = None,
 ) -> None:
     """Rank the findings of a vulnerability scan, with a reason for every decision."""
+    if verbose and quiet:
+        raise typer.BadParameter("--verbose and --quiet cannot be used together")
     _configure_logging(verbose=verbose, quiet=quiet)
     cache = None if no_cache else cache_dir or default_cache_dir()
     try:
@@ -120,16 +132,45 @@ def main(
                 source,
                 _epss(http, epss_file, cache, offline=offline),
                 _kev(http, kev_file, cache, offline=offline),
-                asset_for=config.asset_for,
+                asset_for=_asset_lookup(config),
                 policy=config.scoring,
+                target=target,
             )
         reporter = REPORTERS[output_format](sarif_uri)
         _write(report, reporter, limit=top or None, output=output)
     except (ConfigError, SourceError, OSError) as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(EXIT_ERROR) from exc
+    except Exception as exc:
+        # Exit code 1 means "findings at or above --fail-on"; a crash must never look like that.
+        logger.info("unexpected error", exc_info=True)
+        typer.echo(f"internal error: {exc} (run with --verbose for details)", err=True)
+        raise typer.Exit(EXIT_ERROR) from exc
+    if strict and report.enrichment_issues:
+        typer.echo(f"error: enrichment incomplete: {'; '.join(report.enrichment_issues)}", err=True)
+        raise typer.Exit(EXIT_ERROR)
     if fail_on is not None and report.has_findings_at_or_above(fail_on):
         raise typer.Exit(EXIT_FINDINGS)
+
+
+def _asset_lookup(config: Config) -> AssetLookup:
+    """Resolve assets, warning once per scan target that no [[assets]] entry matches."""
+    warned: set[str] = set()
+
+    def lookup(target: str) -> Asset:
+        asset = config.match_asset(target)
+        if asset is not None:
+            return asset
+        if config.assets and target not in warned:
+            warned.add(target)
+            logger.warning(
+                "no [[assets]] entry matches %r; using default_asset (criticality %s)",
+                target,
+                config.default_asset.criticality,
+            )
+        return config.asset_for(target)
+
+    return lookup
 
 
 def _http_client() -> httpx.Client:
@@ -172,6 +213,6 @@ def _configure_logging(*, verbose: bool, quiet: bool) -> None:
     handler = RichHandler(
         console=Console(stderr=True), show_time=False, show_path=False, markup=False
     )
-    logger = logging.getLogger("vulnrank")
-    logger.handlers[:] = [handler]
-    logger.setLevel(level)
+    package_logger = logging.getLogger("vulnrank")
+    package_logger.handlers[:] = [handler]
+    package_logger.setLevel(level)

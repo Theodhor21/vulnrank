@@ -84,11 +84,15 @@ class KevFeedClient:
         self._url = url
         self._sleep = sleep
         self._catalog: Catalog | None = None
+        self._issues: list[str] = []
 
     def lookup(self, cve_ids: Collection[str]) -> Mapping[str, KevEntry]:
         if self._catalog is None:
             self._catalog = self._load()
         return _lookup(self._catalog, cve_ids)
+
+    def issues(self) -> tuple[str, ...]:
+        return tuple(self._issues)
 
     def _load(self) -> Catalog:
         cached: Catalog | None = None
@@ -100,6 +104,7 @@ class KevFeedClient:
             return cached
         if self._offline:
             logger.warning("offline: no cached KEV catalog, so no CVE is marked as in KEV")
+            self._issues.append("offline: no cached KEV catalog")
             return {}
         try:
             catalog = parse_feed(get_json(self._http, self._url, sleep=self._sleep))
@@ -114,6 +119,7 @@ class KevFeedClient:
             logger.warning("KEV download failed (%s); using the stale cached catalog", exc)
             return stale
         logger.warning("KEV download failed (%s); no CVE is marked as in KEV", exc)
+        self._issues.append(f"KEV download failed ({exc}) and no cached catalog")
         return {}
 
 
@@ -143,3 +149,6 @@ class KevJsonFile:
             except ValueError as exc:
                 raise SourceError(f"{self._path}: {exc}") from exc
         return _lookup(self._catalog, cve_ids)
+
+    def issues(self) -> tuple[str, ...]:
+        return ()

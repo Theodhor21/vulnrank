@@ -5,10 +5,10 @@ from datetime import date
 import pytest
 
 from tests.builders import make_asset, make_enrichment, make_finding
+from vulnrank.adapters.outputs._format import advisory_url, fix
 from vulnrank.adapters.outputs.json_report import JsonReporter
 from vulnrank.adapters.outputs.markdown import MarkdownReporter
 from vulnrank.adapters.outputs.table import TableReporter
-from vulnrank.adapters.outputs._format import advisory_url, fix
 from vulnrank.domain.models import Criticality, FixStatus, Report, ScoredFinding
 from vulnrank.domain.policy import ScoringPolicy
 from vulnrank.domain.scoring import rank, score

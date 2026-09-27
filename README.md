@@ -65,11 +65,17 @@ uv run vulnrank scan.json --assets assets.toml --top 20
 | `--assets FILE` | Asset context and scoring thresholds ([example](examples/assets.toml)) |
 | `--top N` | List the top N findings (default 20, `0` = all) |
 | `--fail-on P1` | Exit with code 1 if any finding is at this tier or above: a CI gate |
+| `--strict` | Exit with code 2 if EPSS or KEV data could not be loaded, so a gate never passes blind |
+| `--target NAME` | Report findings under this name and match assets against it |
 | `--offline` | No network: use cached EPSS/KEV data, or local files via `--epss-file` / `--kev-file` |
 
-Input can be a Trivy JSON report or a CycloneDX JSON SBOM with vulnerabilities; the format is
-detected automatically. Exit codes: `0` ok, `1` findings at or above `--fail-on`, `2` input or
-usage error.
+Input can be a Trivy JSON report or a CycloneDX JSON SBOM with vulnerabilities (UTF-8 or
+UTF-16); the format is detected automatically. Exit codes: `0` ok, `1` findings at or above
+`--fail-on`, `2` input, usage or internal error (a crash never exits with `1`).
+
+Asset entries in `assets.toml` match a scan target by exact name, then by name without tag or
+digest (`my-app` matches `my-app:abc123`), then by glob pattern (`ghcr.io/acme/*`). Targets that
+match no entry get `[default_asset]`, with a warning.
 
 ## How the ranking works
 
@@ -83,9 +89,13 @@ matching rule is shown as a reason.
 | **P3** | CVSS ≥ 7.0 |
 | **P4** | Everything else |
 
-Within a tier, findings are sorted by EPSS, then CVSS (highest first, unknown last), then
-**fixable first**, because a patch that exists is the quickest win. A fix never changes the
-tier: having a patch does not make a vulnerability more dangerous.
+Without a CVSS score, the scanner's severity stands in for it at the bottom of its CVSS band
+(critical 9.0, high 7.0), and the reason says so.
+
+Within a tier, findings in KEV come first, then higher EPSS, then higher CVSS (unknown last),
+then **fixable first**, because a patch that exists is the quickest win. A fix never changes
+the tier: having a patch does not make a vulnerability more dangerous. When there is no fix,
+the vendor's status is shown ("will not fix", "deferred", "end-of-life").
 
 The ordering of signals is deliberate: **evidence of exploitation (KEV) beats probability of
 exploitation (EPSS), which beats theoretical severity (CVSS)**. CVSS alone can only reach P3,
@@ -158,7 +168,7 @@ every module in the core and fails if it imports an adapter or an I/O library.
 
 ## Engineering notes
 
-- **Tested without the network.** 261 tests at 100% line and branch coverage, enforced in
+- **Tested without the network.** 367 tests at 100% line and branch coverage, enforced in
   CI. Every test runs inside an HTTP mock, so a test that forgets to mock a request fails
   instead of reaching the internet.
 - **Test-first.** Later features were written test-first; the history shows each
@@ -182,15 +192,16 @@ Design decisions are recorded as short ADRs:
 
 ## Known limitations
 
-- **CVE IDs only.** Advisories with only a GitHub (GHSA) ID are skipped, because EPSS and
-  KEV cover CVEs; the skip is logged with `--verbose`.
+- **EPSS and KEV cover CVEs only.** Advisories with only a GitHub (GHSA) or other ID are kept
+  and ranked on CVSS or severity, but get no EPSS or KEV signal. In CycloneDX input, a CVE
+  alias listed in `references` is used when present.
 - **KEV outages.** If the KEV feed cannot be downloaded and nothing is cached, CVEs are
-  treated as not in KEV. A warning says so.
+  treated as not in KEV. The report warns about it, and `--strict` turns it into exit code 2.
 - **Severity labels can differ between formats.** CycloneDX does not record which vendor
   rating Trivy chose, so the display-only severity field may differ from the Trivy JSON
   report. Tiers and ordering are unaffected.
-- **Exact asset matching.** Asset context applies when the scan target name matches the
-  `target` in `assets.toml` exactly.
+- **No reachability analysis.** A vulnerable package is ranked whether or not the code path
+  is used in the container (e.g. kernel headers in `linux-libc-dev`).
 
 ## Development
 

@@ -5,8 +5,7 @@ from typing import TextIO
 from vulnrank.adapters.outputs import _format as fmt
 from vulnrank.domain.models import Report, ScoredFinding
 
-HEADER = ("#", "Tier", "CVE", "Component", "EPSS", "CVSS", "KEV", "Fix", "Why")
-NVD_URL = "https://nvd.nist.gov/vuln/detail/"
+HEADER = ("#", "Tier", "ID", "Component", "EPSS", "CVSS", "KEV", "Fix", "Why")
 
 
 class MarkdownReporter:
@@ -17,6 +16,8 @@ class MarkdownReporter:
 def render(report: Report, limit: int | None = None) -> str:
     title = ", ".join(report.targets) or "no findings"
     lines = [f"## vulnrank: {_escape(title)}", "", fmt.summary(report), ""]
+    if warning := fmt.enrichment_warning(report):
+        lines.extend([f"> **{_escape(warning)}**", ""])
     findings = fmt.listed(report, limit)
     if findings:
         lines.append(_row(HEADER))
@@ -29,11 +30,11 @@ def render(report: Report, limit: int | None = None) -> str:
 
 
 def _cells(rank: int, scored: ScoredFinding) -> tuple[str, ...]:
-    cve = scored.finding.vulnerability.cve_id
+    vuln_id = scored.finding.vulnerability.vuln_id
     return (
         str(rank),
         f"**{scored.priority}**",
-        f"[{cve}]({NVD_URL}{cve})",
+        f"[{vuln_id}]({fmt.advisory_url(vuln_id)})",
         _escape(fmt.component(scored)),
         fmt.epss(scored),
         fmt.cvss(scored),

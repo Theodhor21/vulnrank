@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,7 @@ def _load(name: str) -> list[Finding]:
     return list(source.load().findings)
 
 
-def _bom(vulnerability: dict[str, object], **component: object) -> dict[str, object]:
+def _bom(vulnerability: Mapping[str, object], **component: object) -> dict[str, object]:
     return {
         "bomFormat": "CycloneDX",
         "components": [{"bom-ref": "ref", "name": "pkg", "version": "1.0", **component}],
@@ -158,8 +159,8 @@ def test_sbom_without_vulnerabilities_explains_how_to_get_them(
     with caplog.at_level(logging.WARNING, logger="vulnrank"):
         findings = parse_cyclonedx(
             {"bomFormat": "CycloneDX", "components": []}, default_target="x"
-        ).findings.findings
-    assert findings == []
+        ).findings
+    assert findings == ()
     assert "--scanners vuln" in caplog.text
 
 
@@ -176,3 +177,10 @@ def test_file_name_is_the_target_without_metadata() -> None:
 def test_wrong_format_is_a_source_error(document: object) -> None:
     with pytest.raises(SourceError, match="not a CycloneDX JSON document"):
         parse_cyclonedx(document, default_target="x")
+
+
+def test_an_invalid_advisory_id_is_logged_and_skipped(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.WARNING, logger="vulnrank"):
+        result = parse_cyclonedx(_bom({"id": "not an id"}), default_target="x")
+    assert (result.findings, result.skipped) == ((), 1)
+    assert "not a valid advisory ID" in caplog.text

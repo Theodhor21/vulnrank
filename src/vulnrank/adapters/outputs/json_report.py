@@ -6,7 +6,9 @@ from typing import TextIO
 from vulnrank.adapters.outputs._format import listed
 from vulnrank.domain.models import Report, ScoredFinding
 
-SCHEMA_VERSION = 1
+# 2: "cve" became "id" (advisories without a CVE are kept); added fix_status, skipped and
+#    enrichment_issues.
+SCHEMA_VERSION = 2
 
 
 class JsonReporter:
@@ -21,11 +23,13 @@ def to_document(report: Report, limit: int | None = None) -> dict[str, object]:
         "schema_version": SCHEMA_VERSION,
         "summary": {
             "scanned": report.scanned,
+            "skipped": report.skipped,
             "duplicates_removed": report.duplicates_removed,
             "unique_findings": len(report.findings),
             "listed": len(findings),
             "by_priority": {str(priority): count for priority, count in report.counts.items()},
             "targets": list(report.targets),
+            "enrichment_issues": list(report.enrichment_issues),
         },
         "findings": [_finding(rank, scored) for rank, scored in enumerate(findings, start=1)],
     }
@@ -38,7 +42,7 @@ def _finding(rank: int, scored: ScoredFinding) -> dict[str, object]:
     return {
         "rank": rank,
         "priority": str(scored.priority),
-        "cve": vulnerability.cve_id,
+        "id": vulnerability.vuln_id,
         "target": scored.finding.target,
         "component": scored.finding.component.model_dump(),
         "severity": str(vulnerability.severity),
@@ -48,6 +52,7 @@ def _finding(rank: int, scored: ScoredFinding) -> dict[str, object]:
         "in_kev": enrichment.in_kev,
         "kev_date_added": added.isoformat() if added else None,
         "fixed_version": vulnerability.fixed_version,
+        "fix_status": str(vulnerability.status) if vulnerability.status else None,
         "asset": {
             "criticality": str(scored.asset.criticality),
             "internet_exposed": scored.asset.internet_exposed,
