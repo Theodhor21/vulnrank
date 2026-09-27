@@ -1,0 +1,26 @@
+# Asset context for the example scans. Targets must match the scanned image name.
+# Everything not listed here gets [default_asset].
+
+[default_asset]
+criticality = "medium"
+internet_exposed = false
+
+# The nginx image plays a public-facing, business-critical web server.
+[[assets]]
+target = "nginx:1.19"
+criticality = "critical"
+internet_exposed = true
+
+# Juice Shop plays an internal test application.
+[[assets]]
+target = "bkimminich/juice-shop"
+criticality = "low"
+internet_exposed = false
+
+# Optional: override scoring thresholds (these are the defaults).
+[scoring]
+p1_epss_on_high_criticality = 0.5
+p1_epss_on_exposed_critical = 0.1
+p2_epss = 0.1
+p2_cvss_on_high_criticality = 9.0
+p3_cvss = 7.0
