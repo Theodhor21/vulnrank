@@ -8,7 +8,8 @@ from tests.builders import make_asset, make_enrichment, make_finding
 from vulnrank.adapters.outputs.json_report import JsonReporter
 from vulnrank.adapters.outputs.markdown import MarkdownReporter
 from vulnrank.adapters.outputs.table import TableReporter
-from vulnrank.domain.models import Criticality, Report, ScoredFinding
+from vulnrank.adapters.outputs._format import advisory_url, fix
+from vulnrank.domain.models import Criticality, FixStatus, Report, ScoredFinding
 from vulnrank.domain.policy import ScoringPolicy
 from vulnrank.domain.scoring import rank, score
 from vulnrank.ports.reporting import Reporter
@@ -24,10 +25,16 @@ def _scored(
     fixed: str | None = None,
     component: str = "openssl",
     target: str = "app:1.0",
+    status: FixStatus | None = None,
 ) -> ScoredFinding:
     return score(
         make_finding(
-            cve_id=cve, cvss=cvss, fixed_version=fixed, component=component, target=target
+            vuln_id=cve,
+            cvss=cvss,
+            fixed_version=fixed,
+            component=component,
+            target=target,
+            status=status,
         ),
         make_enrichment(epss=epss, in_kev=kev, kev_date_added=kev_date),
         make_asset(criticality=Criticality.HIGH, target=target),
@@ -61,19 +68,22 @@ def _render(reporter: Reporter, report: Report = REPORT, limit: int | None = Non
 
 def test_json_document_structure() -> None:
     document = json.loads(_render(JsonReporter()))
-    assert document["schema_version"] == 1
+    assert document["schema_version"] == 2
     assert document["summary"] == {
         "scanned": 4,
+        "skipped": 0,
         "duplicates_removed": 1,
         "unique_findings": 3,
         "listed": 3,
         "by_priority": {"P1": 1, "P2": 1, "P3": 0, "P4": 1},
         "targets": ["app:1.0"],
+        "enrichment_issues": [],
     }
     first = document["findings"][0]
     assert first["rank"] == 1
     assert first["priority"] == "P1"
-    assert first["cve"] == "CVE-2024-0001"
+    assert first["id"] == "CVE-2024-0001"
+    assert first["fix_status"] is None
     assert first["in_kev"] is True
     assert first["kev_date_added"] == "2024-05-01"
     assert first["fixed_version"] == "1.1"
@@ -99,9 +109,9 @@ def test_markdown_table() -> None:
     assert lines[0] == "## vulnrank: app:1.0"
     assert (
         lines[2]
-        == "P1: 1 · P2: 1 · P3: 0 · P4: 1 (3 unique findings from 4 scanned, 1 duplicates removed)"
+        == "P1: 1 · P2: 1 · P3: 0 · P4: 1 (3 unique findings from 4 records, 1 duplicates removed)"
     )
-    assert lines[4].startswith("| # | Tier | CVE |")
+    assert lines[4].startswith("| # | Tier | ID |")
     assert (
         "| 1 | **P1** | [CVE-2024-0001](https://nvd.nist.gov/vuln/detail/CVE-2024-0001) |" in text
     )
@@ -146,3 +156,80 @@ def test_table_notes_truncation(limit: int) -> None:
     text = _render(TableReporter(width=200), limit=limit)
     assert f"Showing the top {limit} of 3" in text
     assert "CVE-2024-0003" not in text
+
+
+# --- Shared formatting -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("vuln_id", "url"),
+    [
+        ("CVE-2024-0001", "https://nvd.nist.gov/vuln/detail/CVE-2024-0001"),
+        ("GHSA-jfh8-c2jp-5v3q", "https://github.com/advisories/GHSA-jfh8-c2jp-5v3q"),
+        ("PYSEC-2021-19", "https://osv.dev/vulnerability/PYSEC-2021-19"),
+    ],
+)
+def test_advisory_url(vuln_id: str, url: str) -> None:
+    assert advisory_url(vuln_id) == url
+
+
+@pytest.mark.parametrize(
+    ("fixed", "status", "text"),
+    [
+        ("1.1", FixStatus.FIXED, "1.1"),
+        (None, None, "no fix"),
+        (None, FixStatus.WILL_NOT_FIX, "no fix (will not fix)"),
+        (None, FixStatus.FIX_DEFERRED, "no fix (deferred)"),
+        (None, FixStatus.END_OF_LIFE, "no fix (end-of-life)"),
+    ],
+)
+def test_fix_column_explains_why_there_is_no_fix(
+    fixed: str | None, status: FixStatus | None, text: str
+) -> None:
+    assert fix(_scored(fixed=fixed, status=status)) == text
+
+
+SKIPPED_WITH_ISSUES = Report(
+    findings=REPORT.findings,
+    scanned=6,
+    skipped=2,
+    duplicates_removed=1,
+    enrichment_issues=("offline: no cached KEV catalog",),
+)
+
+
+def test_summary_mentions_skipped_records() -> None:
+    assert (
+        "(3 unique findings from 6 records, 1 duplicates removed, 2 malformed records skipped)"
+        in _render(MarkdownReporter(), SKIPPED_WITH_ISSUES)
+    )
+
+
+@pytest.mark.parametrize(
+    "reporter", [MarkdownReporter(), TableReporter(width=200)], ids=["markdown", "table"]
+)
+def test_human_readable_reports_warn_about_incomplete_enrichment(reporter: Reporter) -> None:
+    text = _render(reporter, SKIPPED_WITH_ISSUES)
+    assert "Warning: enrichment incomplete: offline: no cached KEV catalog" in text
+
+
+def test_json_lists_skipped_records_and_enrichment_issues() -> None:
+    summary = json.loads(_render(JsonReporter(), SKIPPED_WITH_ISSUES))["summary"]
+    assert summary["skipped"] == 2
+    assert summary["enrichment_issues"] == ["offline: no cached KEV catalog"]
+
+
+def test_markdown_links_non_cve_advisories_to_their_source() -> None:
+    report = Report(findings=(_scored(cve="GHSA-jfh8-c2jp-5v3q"),), scanned=1, duplicates_removed=0)
+    text = _render(MarkdownReporter(), report)
+    assert "[GHSA-jfh8-c2jp-5v3q](https://github.com/advisories/GHSA-jfh8-c2jp-5v3q)" in text
+
+
+def test_narrow_table_keeps_the_reasons_readable() -> None:
+    """At 80 columns, drop secondary columns instead of truncating the reasons."""
+    text = _render(TableReporter(width=80))
+    assert "…" not in text
+    assert "EPSS" not in text
+    assert "Fix" not in text
+    assert "KEV" in text  # the reason column still says why
+    assert text.index("CVE-2024-0001") < text.index("CVE-2024-0002")

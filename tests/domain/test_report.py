@@ -4,7 +4,7 @@ from vulnrank.domain.models import Priority, Report
 
 def _report(*priorities: Priority) -> Report:
     findings = tuple(
-        make_scored(priority=p, cve_id=f"CVE-2024-{i:04d}") for i, p in enumerate(priorities)
+        make_scored(priority=p, vuln_id=f"CVE-2024-{i:04d}") for i, p in enumerate(priorities)
     )
     return Report(findings=findings, scanned=len(findings), duplicates_removed=0)
 
@@ -25,3 +25,9 @@ def test_threshold_check() -> None:
 def test_targets_are_unique_and_sorted() -> None:
     assert _report(Priority.P1, Priority.P2).targets == ("app:1.0",)
     assert _report().targets == ()
+
+
+def test_skipped_records_and_enrichment_issues_default_to_none() -> None:
+    report = _report(Priority.P1)
+    assert report.skipped == 0
+    assert report.enrichment_issues == ()

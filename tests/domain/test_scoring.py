@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from tests.builders import make_asset, make_enrichment, make_finding
-from vulnrank.domain.models import Criticality, Priority, ScoredFinding
+from vulnrank.domain.models import Criticality, FixStatus, Priority, ScoredFinding, Severity
 from vulnrank.domain.policy import ScoringPolicy
 from vulnrank.domain.scoring import NO_RULE_MATCHED, score
 
@@ -20,9 +20,11 @@ def _score(
     exposed: bool = False,
     fixed_version: str | None = None,
     policy: ScoringPolicy = DEFAULT_POLICY,
+    severity: Severity = Severity.UNKNOWN,
+    status: FixStatus | None = None,
 ) -> ScoredFinding:
     return score(
-        make_finding(cvss=cvss, fixed_version=fixed_version),
+        make_finding(cvss=cvss, fixed_version=fixed_version, severity=severity, status=status),
         make_enrichment(epss=epss, in_kev=in_kev),
         make_asset(criticality=criticality, internet_exposed=exposed),
         policy,
@@ -155,6 +157,72 @@ def test_fix_availability_does_not_change_tier() -> None:
 def test_context_reasons_have_no_tier() -> None:
     scored = _score(exposed=True)
     assert [reason.tier for reason in scored.reasons] == [Priority.P4, None, None]
+
+
+# --- Severity fallback when there is no CVSS score ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("severity", "criticality", "expected", "reason"),
+    [
+        pytest.param(
+            Severity.HIGH,
+            C.LOW,
+            Priority.P3,
+            "severity high with no CVSS score (counts as CVSS ≥ 7.0)",
+            id="high-is-p3",
+        ),
+        pytest.param(
+            Severity.CRITICAL,
+            C.MEDIUM,
+            Priority.P3,
+            "severity critical with no CVSS score (counts as CVSS ≥ 7.0)",
+            id="critical-is-p3-on-a-medium-asset",
+        ),
+        pytest.param(
+            Severity.CRITICAL,
+            C.HIGH,
+            Priority.P2,
+            "severity critical with no CVSS score (counts as CVSS ≥ 9.0) on a high asset",
+            id="critical-is-p2-on-a-high-asset",
+        ),
+        pytest.param(
+            Severity.MEDIUM, C.CRITICAL, Priority.P4, NO_RULE_MATCHED, id="medium-stays-p4"
+        ),
+        pytest.param(
+            Severity.UNKNOWN, C.CRITICAL, Priority.P4, NO_RULE_MATCHED, id="unknown-stays-p4"
+        ),
+    ],
+)
+def test_severity_counts_when_there_is_no_cvss_score(
+    severity: Severity, criticality: Criticality, expected: Priority, reason: str
+) -> None:
+    scored = _score(severity=severity, criticality=criticality)
+    assert scored.priority is expected
+    assert _decisive(scored) == [reason]
+
+
+def test_a_cvss_score_takes_precedence_over_severity() -> None:
+    assert _score(cvss=5.0, severity=Severity.CRITICAL).priority is Priority.P4
+
+
+# --- Vendor fix status ----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("status", "text"),
+    [
+        (FixStatus.WILL_NOT_FIX, "no fix: vendor will not fix"),
+        (FixStatus.FIX_DEFERRED, "no fix yet: vendor deferred the fix"),
+        (FixStatus.END_OF_LIFE, "no fix: package is end-of-life"),
+        (FixStatus.AFFECTED, "no fix available"),
+        (None, "no fix available"),
+    ],
+)
+def test_vendor_fix_status_explains_a_missing_fix(status: FixStatus | None, text: str) -> None:
+    scored = _score(cvss=7.5, status=status)
+    assert scored.reasons[-1].text == text
+    assert scored.priority is Priority.P3  # the status never changes the tier
 
 
 # --- Policy ----------------------------------------------------------------------------------

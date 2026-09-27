@@ -111,10 +111,13 @@ def test_download_failure_without_cache_marks_nothing_and_warns(
     feed: respx.Route, caplog: pytest.LogCaptureFixture, failure: httpx.Response | Exception
 ) -> None:
     feed.mock(side_effect=[failure])
+    client = _client()
     with caplog.at_level(logging.WARNING, logger="vulnrank"):
-        assert _client().lookup(CVES) == {}
+        assert client.lookup(CVES) == {}
     assert "KEV download failed" in caplog.text
     assert "no CVE is marked as in KEV" in caplog.text
+    assert len(client.issues()) == 1
+    assert client.issues()[0].startswith("KEV download failed")
 
 
 def test_download_failure_falls_back_to_a_stale_cache(
@@ -126,6 +129,18 @@ def test_download_failure_falls_back_to_a_stale_cache(
     with caplog.at_level(logging.WARNING, logger="vulnrank"):
         assert _client(cache).lookup(CVES) == EXPECTED
     assert "using the stale cached catalog" in caplog.text
+
+
+def test_a_downloaded_or_stale_catalog_is_not_an_issue(
+    feed: respx.Route, cache: JsonCache, clock: FakeClock
+) -> None:
+    feed.mock(side_effect=[httpx.Response(200, json=FEED), httpx.Response(502)])
+    fresh = _client(cache)
+    fresh.lookup(CVES)
+    clock.advance(DEFAULT_TTL * 3)
+    stale = _client(cache)
+    stale.lookup(CVES)
+    assert fresh.issues() == stale.issues() == ()
 
 
 # --- Offline ---------------------------------------------------------------------------------
@@ -148,6 +163,18 @@ def test_offline_without_cache_warns(
         assert _client(cache, offline=True).lookup(CVES) == {}
     assert not feed.called
     assert "offline: no cached KEV catalog" in caplog.text
+
+
+def test_offline_without_cache_is_an_issue(cache: JsonCache) -> None:
+    client = _client(cache, offline=True)
+    client.lookup(CVES)
+    assert client.issues() == ("offline: no cached KEV catalog",)
+
+
+def test_local_feed_file_has_no_issues() -> None:
+    source = KevJsonFile(FEED_PATH)
+    source.lookup(CVES)
+    assert source.issues() == ()
 
 
 # --- Local file ------------------------------------------------------------------------------

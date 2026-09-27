@@ -48,7 +48,7 @@ def _json(*args: str) -> dict[str, Any]:
 
 
 def _ranked(document: dict[str, Any]) -> list[tuple[str, str, str]]:
-    return [(f["priority"], f["cve"], f["component"]["name"]) for f in document["findings"]]
+    return [(f["priority"], f["id"], f["component"]["name"]) for f in document["findings"]]
 
 
 # --- Happy path ------------------------------------------------------------------------------
@@ -60,18 +60,23 @@ def test_scan_is_ranked_with_asset_context() -> None:
         ("P2", "CVE-2023-0002", "libssl3"),  # CVSS 9.8 on a critical asset
         ("P2", "CVE-2023-0002", "openssl"),
         ("P4", "CVE-2023-0003", "requests"),
+        ("P4", "GHSA-aaaa-bbbb-cccc", "urllib3"),  # no CVE: ranked without EPSS/KEV
     ]
 
 
 def test_without_asset_config_the_default_criticality_applies() -> None:
     ranked = _ranked(_json(str(TRIVY), *LOCAL_INTEL))
-    assert [priority for priority, _, _ in ranked] == ["P1", "P3", "P3", "P4"]
+    assert [priority for priority, _, _ in ranked] == ["P1", "P3", "P3", "P4", "P4"]
 
 
 def test_both_input_formats_give_the_same_result() -> None:
+    def without_fix_status(document: dict[str, Any]) -> list[dict[str, Any]]:
+        # CycloneDX has no field for Trivy's vendor fix status.
+        return [{k: v for k, v in f.items() if k != "fix_status"} for f in document["findings"]]
+
     from_trivy = _json(str(TRIVY), *ASSETS, *LOCAL_INTEL)
     from_cyclonedx = _json(str(CYCLONEDX), *ASSETS, *LOCAL_INTEL)
-    assert from_trivy["findings"] == from_cyclonedx["findings"]
+    assert without_fix_status(from_trivy) == without_fix_status(from_cyclonedx)
 
 
 def test_table_is_the_default_format() -> None:
@@ -79,7 +84,7 @@ def test_table_is_the_default_format() -> None:
     assert result.exit_code == EXIT_OK
     assert "vulnrank: demo-app:1.0" in result.stdout
     assert "in CISA KEV (added 2024-01-10)" in result.stdout
-    assert "P1: 1 · P2: 2 · P3: 0 · P4: 1" in result.stdout
+    assert "P1: 1 · P2: 2 · P3: 0 · P4: 2" in result.stdout
 
 
 def test_markdown_format() -> None:
@@ -98,9 +103,10 @@ def test_sarif_format_for_github_code_scanning() -> None:
         "CVE-2023-0002",
         "CVE-2023-0002",
         "CVE-2023-0003",
+        "GHSA-aaaa-bbbb-cccc",
     ]
     uri = run["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
-    assert uri == "demo-app-1.0"
+    assert uri == "demo-app"
 
 
 def test_sarif_uri_points_alerts_at_a_repository_file() -> None:
@@ -113,7 +119,7 @@ def test_sarif_uri_points_alerts_at_a_repository_file() -> None:
     assert uris == {"docker/Dockerfile"}
 
 
-@pytest.mark.parametrize(("top", "listed"), [("1", 1), ("0", 4), ("99", 4)])
+@pytest.mark.parametrize(("top", "listed"), [("1", 1), ("0", 5), ("99", 5)])
 def test_top_limits_the_listed_findings(top: str, listed: int) -> None:
     document = _json(str(TRIVY), *LOCAL_INTEL, "--top", top)
     assert len(document["findings"]) == listed
@@ -124,7 +130,7 @@ def test_report_can_be_written_to_a_file(tmp_path: Path) -> None:
     result = _run(str(TRIVY), *LOCAL_INTEL, "--format", "json", "--output", str(out))
     assert result.exit_code == EXIT_OK
     assert result.stdout == ""
-    assert json.loads(out.read_text(encoding="utf-8"))["summary"]["unique_findings"] == 4
+    assert json.loads(out.read_text(encoding="utf-8"))["summary"]["unique_findings"] == 5
 
 
 # --- CI gate ---------------------------------------------------------------------------------
@@ -217,7 +223,7 @@ def test_offline_without_cache_still_produces_a_report(tmp_path: Path) -> None:
 
 def test_verbose_shows_info_logs_on_stderr() -> None:
     result = _run(str(TRIVY), *LOCAL_INTEL, "-v")
-    assert "GHSA-aaaa-bbbb-cccc" in result.stderr
+    assert "loaded 5 findings from 5 records" in result.stderr
 
 
 def test_quiet_hides_warnings() -> None:
@@ -229,3 +235,90 @@ def test_version() -> None:
     result = _run("--version")
     assert result.exit_code == EXIT_OK
     assert result.stdout.strip() == f"vulnrank {__version__}"
+
+
+def test_verbose_and_quiet_together_is_a_usage_error() -> None:
+    result = _run(str(TRIVY), *LOCAL_INTEL, "-v", "-q")
+    assert result.exit_code == EXIT_ERROR
+    assert "--verbose and --quiet" in result.output
+
+
+# --- Robustness: a crash must never look like "findings found" --------------------------------
+
+
+def test_an_unexpected_error_exits_2_not_1(monkeypatch: pytest.MonkeyPatch) -> None:
+    def explode(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("vulnrank.cli.prioritise", explode)
+    result = _run(str(TRIVY), *LOCAL_INTEL, "--fail-on", "P1")
+    assert result.exit_code == EXIT_ERROR
+    assert "internal error: boom" in result.stderr
+
+
+def test_a_utf16_scan_is_accepted(tmp_path: Path) -> None:
+    """What PowerShell's `>` redirection writes on Windows."""
+    scan = tmp_path / "scan.json"
+    scan.write_bytes(TRIVY.read_text(encoding="utf-8").encode("utf-16"))
+    assert len(_json(str(scan), *LOCAL_INTEL)["findings"]) == 5
+
+
+def test_an_undecodable_scan_exits_2(tmp_path: Path) -> None:
+    scan = tmp_path / "scan.json"
+    scan.write_bytes('{"SchemaVersion": 2, "ArtifactName": "café"}'.encode("latin-1"))
+    result = _run(str(scan), *LOCAL_INTEL)
+    assert result.exit_code == EXIT_ERROR
+    assert "not valid UTF-8 or UTF-16" in result.stderr
+
+
+# --- Asset matching ------------------------------------------------------------------------------
+
+
+def test_a_warning_names_targets_that_no_asset_entry_matches() -> None:
+    result = _run(str(TRIVY), *LOCAL_INTEL, "--assets", str(FIXTURES / "assets.toml"))
+    assert result.exit_code == EXIT_OK
+    assert "no [[assets]] entry matches 'demo-app:1.0'" in result.stderr
+
+
+def test_no_warning_without_an_assets_file() -> None:
+    assert "[[assets]]" not in _run(str(TRIVY), *LOCAL_INTEL).stderr
+
+
+def test_an_asset_without_a_tag_matches_every_tag(tmp_path: Path) -> None:
+    assets = tmp_path / "assets.toml"
+    assets.write_text(
+        '[[assets]]\ntarget = "demo-app"\ncriticality = "critical"\ninternet_exposed = true\n',
+        encoding="utf-8",
+    )
+    ranked = _ranked(_json(str(TRIVY), *LOCAL_INTEL, "--assets", str(assets)))
+    assert [p for p, _, _ in ranked] == ["P1", "P2", "P2", "P4", "P4"]
+
+
+def test_target_overrides_the_name_from_the_scan() -> None:
+    args = ["--assets", str(FIXTURES / "assets.toml"), "--target", "shop-frontend:2.4"]
+    document = _json(str(TRIVY), *LOCAL_INTEL, *args)
+    assert {f["target"] for f in document["findings"]} == {"shop-frontend:2.4"}
+    assert document["findings"][0]["asset"]["criticality"] == "critical"
+
+
+# --- Strict mode: missing threat intelligence fails the gate -------------------------------------
+
+
+def test_strict_fails_when_enrichment_is_incomplete(tmp_path: Path) -> None:
+    result = _run(str(TRIVY), "--offline", "--cache-dir", str(tmp_path), "--strict")
+    assert result.exit_code == EXIT_ERROR
+    assert "enrichment incomplete" in result.stderr
+
+
+def test_strict_passes_when_enrichment_is_complete() -> None:
+    assert _run(str(TRIVY), *LOCAL_INTEL, "--strict").exit_code == EXIT_OK
+
+
+def test_without_strict_incomplete_enrichment_is_reported_but_not_fatal(tmp_path: Path) -> None:
+    result = _run(str(TRIVY), "--offline", "--cache-dir", str(tmp_path), "--format", "json")
+    assert result.exit_code == EXIT_OK
+    issues = json.loads(result.stdout)["summary"]["enrichment_issues"]
+    assert issues == [
+        "offline: no cached EPSS score for 3 CVE(s)",
+        "offline: no cached KEV catalog",
+    ]

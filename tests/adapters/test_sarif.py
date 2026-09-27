@@ -32,7 +32,7 @@ def _scored(
 ) -> ScoredFinding:
     return score(
         make_finding(
-            cve_id=cve, component=component, target=target, cvss=cvss, fixed_version=fixed
+            vuln_id=cve, component=component, target=target, cvss=cvss, fixed_version=fixed
         ),
         make_enrichment(epss=epss, in_kev=kev),
         make_asset(criticality=Criticality.HIGH, target=target),
@@ -164,7 +164,7 @@ def test_result_properties_carry_the_enrichment() -> None:
 
 def test_location_defaults_to_a_path_derived_from_the_target() -> None:
     location = _run(_sarif())["results"][0]["locations"][0]["physicalLocation"]
-    assert location["artifactLocation"]["uri"] == "app-1.0"
+    assert location["artifactLocation"]["uri"] == "app"
     assert location["region"] == {"startLine": 1, "startColumn": 1, "endLine": 1, "endColumn": 1}
 
 
@@ -177,11 +177,13 @@ def test_location_can_point_at_a_repository_file() -> None:
 @pytest.mark.parametrize(
     ("target", "expected"),
     [
-        ("nginx:1.19", "nginx-1.19"),
-        ("ghcr.io/org/app:1.2", "ghcr.io/org/app-1.2"),
+        # The tag or digest is dropped so alerts stay stable across builds.
+        ("nginx:1.19", "nginx"),
+        ("ghcr.io/org/app:1.2", "ghcr.io/org/app"),
+        ("localhost:5000/app:1.2", "localhost-5000/app"),
         ("bkimminich/juice-shop", "bkimminich/juice-shop"),
         ("/abs/path to/scan.json", "abs/path-to/scan.json"),
-        ("app@sha256:abc", "app-sha256-abc"),
+        ("app@sha256:abc", "app"),
     ],
 )
 def test_artifact_uri_for_target(target: str, expected: str) -> None:
@@ -205,6 +207,19 @@ def test_fingerprint_ignores_rank_and_enrichment() -> None:
         r["partialFingerprints"] for r in _run(after)["results"] if r["ruleId"] == "CVE-2024-0009"
     ]
     assert fingerprint_before == fingerprint_after
+
+
+def test_fingerprint_and_location_survive_a_new_image_tag() -> None:
+    """A new build (my-app:abc -> my-app:def) must update alerts, not close and reopen them."""
+    old = _run(_sarif(_report(_scored(cve="CVE-2024-0001", target="my-app:abc123"))))
+    new = _run(_sarif(_report(_scored(cve="CVE-2024-0001", target="my-app:def456"))))
+    assert old["results"][0]["partialFingerprints"] == new["results"][0]["partialFingerprints"]
+    assert old["results"][0]["locations"] == new["results"][0]["locations"]
+
+
+def test_non_cve_rules_link_to_their_advisory() -> None:
+    rules = _run(_sarif(_report(_scored(cve="GHSA-jfh8-c2jp-5v3q"))))["tool"]["driver"]["rules"]
+    assert rules[0]["helpUri"] == "https://github.com/advisories/GHSA-jfh8-c2jp-5v3q"
 
 
 # --- Limits and edge cases --------------------------------------------------------------------

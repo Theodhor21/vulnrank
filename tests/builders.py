@@ -8,25 +8,35 @@ from vulnrank.domain.models import (
     Criticality,
     Enrichment,
     Finding,
+    FixStatus,
     Priority,
     Reason,
     ScoredFinding,
+    Severity,
     Vulnerability,
 )
 
 
 def make_finding(
     *,
-    cve_id: str = "CVE-2024-0001",
+    vuln_id: str = "CVE-2024-0001",
     cvss: float | None = None,
     fixed_version: str | None = None,
     component: str = "openssl",
     version: str = "1.0.0",
     target: str = "app:1.0",
+    severity: Severity = Severity.UNKNOWN,
+    status: FixStatus | None = None,
 ) -> Finding:
     return Finding(
         component=Component(name=component, version=version),
-        vulnerability=Vulnerability(cve_id=cve_id, cvss_score=cvss, fixed_version=fixed_version),
+        vulnerability=Vulnerability(
+            vuln_id=vuln_id,
+            cvss_score=cvss,
+            fixed_version=fixed_version,
+            severity=severity,
+            status=status,
+        ),
         target=target,
     )
 
@@ -52,11 +62,12 @@ def make_scored(
     epss: float | None = None,
     cvss: float | None = None,
     fixed_version: str | None = None,
-    cve_id: str = "CVE-2024-0001",
+    vuln_id: str = "CVE-2024-0001",
+    in_kev: bool = False,
 ) -> ScoredFinding:
     return ScoredFinding(
-        finding=make_finding(cve_id=cve_id, cvss=cvss, fixed_version=fixed_version),
-        enrichment=make_enrichment(epss=epss),
+        finding=make_finding(vuln_id=vuln_id, cvss=cvss, fixed_version=fixed_version),
+        enrichment=make_enrichment(epss=epss, in_kev=in_kev),
         asset=make_asset(),
         priority=priority,
         reasons=(Reason(text="test", tier=priority),),

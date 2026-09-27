@@ -154,9 +154,13 @@ def test_api_failures_leave_scores_empty_and_warn(
     api: respx.Route, caplog: pytest.LogCaptureFixture, failure: httpx.Response | Exception
 ) -> None:
     api.mock(side_effect=[failure])
+    client = _client()
     with caplog.at_level(logging.WARNING, logger="vulnrank"):
-        assert _client().scores(CVES) == {}
+        assert client.scores(CVES) == {}
     assert "EPSS lookup failed for 3 CVE(s)" in caplog.text
+    assert client.issues() == (
+        "EPSS lookup failed for 3 CVE(s) (no cached scores to fall back on)",
+    )
 
 
 def test_stale_cache_is_the_fallback_when_the_api_fails(
@@ -168,6 +172,24 @@ def test_stale_cache_is_the_fallback_when_the_api_fails(
     with caplog.at_level(logging.WARNING, logger="vulnrank"):
         assert _client(cache).scores(CVES) == EXPECTED
     assert "using stale cached EPSS scores for 2 CVE(s)" in caplog.text
+
+
+def test_a_successful_lookup_has_no_issues(api: respx.Route) -> None:
+    api.mock(return_value=_ok())
+    client = _client()
+    client.scores(CVES)
+    assert client.issues() == ()
+
+
+def test_a_stale_fallback_is_not_an_issue(
+    api: respx.Route, cache: JsonCache, clock: FakeClock
+) -> None:
+    api.mock(side_effect=[_ok(), httpx.Response(503)])
+    _client(cache).scores(CVES)
+    clock.advance(DEFAULT_TTL * 2)
+    client = _client(cache)
+    client.scores(CVES)
+    assert client.issues() == ()
 
 
 def test_rate_limit_is_retried_after_the_requested_delay(api: respx.Route) -> None:
@@ -225,6 +247,12 @@ def test_offline_without_a_cache_entry_warns(
     assert "offline: no cached EPSS score for 3 CVE(s)" in caplog.text
 
 
+def test_offline_without_a_cache_entry_is_an_issue(cache: JsonCache) -> None:
+    client = _client(cache, offline=True)
+    client.scores(CVES)
+    assert client.issues() == ("offline: no cached EPSS score for 3 CVE(s)",)
+
+
 # --- Local CSV export -----------------------------------------------------------------------
 
 
@@ -260,3 +288,24 @@ def test_unreadable_csv_is_a_source_error(tmp_path: Path, name: str, content: by
         path.write_bytes(content)
     with pytest.raises(SourceError, match="cannot read EPSS file"):
         EpssCsvFile(path).scores(CVES)
+
+
+def test_csv_with_a_utf8_bom_is_read(tmp_path: Path) -> None:
+    path = tmp_path / "scores.csv"
+    path.write_bytes(b"\xef\xbb\xbf" + (FIXTURES / "scores.csv").read_bytes())
+    assert EpssCsvFile(path).scores(CVES) == EXPECTED
+
+
+def test_csv_without_any_valid_row_is_an_issue(tmp_path: Path) -> None:
+    """E.g. the KEV CSV passed as --epss-file by mistake."""
+    path = tmp_path / "wrong.csv"
+    path.write_text("cveID,vendorProject\nCVE-2023-0001,Example\n", encoding="utf-8")
+    source = EpssCsvFile(path)
+    assert source.scores(CVES) == {}
+    assert source.issues() == (f"no valid EPSS rows in {path}",)
+
+
+def test_csv_with_valid_rows_has_no_issues() -> None:
+    source = EpssCsvFile(FIXTURES / "scores.csv")
+    source.scores(CVES)
+    assert source.issues() == ()

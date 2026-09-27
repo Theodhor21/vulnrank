@@ -14,13 +14,21 @@ class FakeEpss:
         self.requested = list(cve_ids)
         return {cve: s for cve, s in self.scores_by_cve.items() if cve in cve_ids}
 
+    def issues(self) -> tuple[str, ...]:
+        return ()
+
 
 class FakeKev:
     def __init__(self, entries: dict[str, KevEntry]) -> None:
         self.entries = entries
+        self.requested: list[str] = []
 
     def lookup(self, cve_ids: Collection[str]) -> Mapping[str, KevEntry]:
+        self.requested = list(cve_ids)
         return {cve: e for cve, e in self.entries.items() if cve in cve_ids}
+
+    def issues(self) -> tuple[str, ...]:
+        return ()
 
 
 def test_each_cve_gets_one_combined_enrichment() -> None:
@@ -37,3 +45,11 @@ def test_each_cve_gets_one_combined_enrichment() -> None:
 
 def test_no_cves_means_no_enrichment() -> None:
     assert enrich([], FakeEpss({}), FakeKev({})) == {}
+
+
+def test_only_cve_ids_are_looked_up_but_every_advisory_gets_an_enrichment() -> None:
+    epss, kev = FakeEpss({}), FakeKev({})
+    result = enrich(["GHSA-jfh8-c2jp-5v3q", "CVE-2023-0001"], epss, kev)
+    assert epss.requested == ["CVE-2023-0001"]
+    assert kev.requested == ["CVE-2023-0001"]
+    assert result["GHSA-jfh8-c2jp-5v3q"] == Enrichment()
