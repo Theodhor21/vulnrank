@@ -30,3 +30,6 @@ jobs:
 
       - name: Test
         run: make test
+        env:
+          # Worst case for output assertions: rich and typer emit ANSI colour codes.
+          FORCE_COLOR: "1"

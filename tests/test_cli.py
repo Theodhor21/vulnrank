@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,14 @@ def _reset_logging() -> Iterator[None]:
     logger = logging.getLogger("vulnrank")
     logger.handlers.clear()
     logger.setLevel(logging.NOTSET)
+
+
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """CI forces colour output; compare against the text without escape codes."""
+    return ANSI_ESCAPE.sub("", text)
 
 
 def _run(*args: str) -> Result:
@@ -82,14 +91,14 @@ def test_both_input_formats_give_the_same_result() -> None:
 def test_table_is_the_default_format() -> None:
     result = _run(str(TRIVY), *ASSETS, *LOCAL_INTEL)
     assert result.exit_code == EXIT_OK
-    assert "vulnrank: demo-app:1.0" in result.stdout
-    assert "in CISA KEV (added 2024-01-10)" in result.stdout
-    assert "P1: 1 · P2: 2 · P3: 0 · P4: 2" in result.stdout
+    assert "vulnrank: demo-app:1.0" in _plain(result.stdout)
+    assert "in CISA KEV (added 2024-01-10)" in _plain(result.stdout)
+    assert "P1: 1 · P2: 2 · P3: 0 · P4: 2" in _plain(result.stdout)
 
 
 def test_markdown_format() -> None:
     result = _run(str(TRIVY), *LOCAL_INTEL, "--format", "markdown")
-    assert result.stdout.startswith("## vulnrank: demo-app:1.0")
+    assert _plain(result.stdout).startswith("## vulnrank: demo-app:1.0")
 
 
 def test_sarif_format_for_github_code_scanning() -> None:
@@ -172,13 +181,13 @@ def test_fail_on_considers_findings_beyond_top() -> None:
 def test_input_errors_exit_2_with_a_message(args: list[str], message: str) -> None:
     result = _run(*args, "--offline", "--no-cache")
     assert result.exit_code == EXIT_ERROR
-    assert message in result.stderr
+    assert message in _plain(result.stderr)
 
 
 def test_unwritable_output_exits_2(tmp_path: Path) -> None:
     result = _run(str(TRIVY), *LOCAL_INTEL, "--output", str(tmp_path / "no" / "dir.json"))
     assert result.exit_code == EXIT_ERROR
-    assert "error:" in result.stderr
+    assert "error:" in _plain(result.stderr)
 
 
 @pytest.mark.parametrize("args", [["--format", "xml"], ["--fail-on", "P9"], ["--top", "-1"], []])
@@ -214,7 +223,7 @@ def test_online_run_fills_the_cache_and_a_later_offline_run_uses_it(
 def test_offline_without_cache_still_produces_a_report(tmp_path: Path) -> None:
     result = _run(str(TRIVY), "--offline", "--cache-dir", str(tmp_path), "--format", "json")
     assert result.exit_code == EXIT_OK
-    assert "offline: no cached KEV catalog" in result.stderr
+    assert "offline: no cached KEV catalog" in _plain(result.stderr)
     assert _ranked(json.loads(result.stdout))[0][0] == "P3"
 
 
@@ -223,12 +232,12 @@ def test_offline_without_cache_still_produces_a_report(tmp_path: Path) -> None:
 
 def test_verbose_shows_info_logs_on_stderr() -> None:
     result = _run(str(TRIVY), *LOCAL_INTEL, "-v")
-    assert "loaded 5 findings from 5 records" in result.stderr
+    assert "loaded 5 findings from 5 records" in _plain(result.stderr)
 
 
 def test_quiet_hides_warnings() -> None:
     result = _run(str(TRIVY), *LOCAL_INTEL, "-q")
-    assert "malformed" not in result.stderr
+    assert "malformed" not in _plain(result.stderr)
 
 
 def test_version() -> None:
@@ -240,7 +249,7 @@ def test_version() -> None:
 def test_verbose_and_quiet_together_is_a_usage_error() -> None:
     result = _run(str(TRIVY), *LOCAL_INTEL, "-v", "-q")
     assert result.exit_code == EXIT_ERROR
-    assert "--verbose and --quiet" in result.output
+    assert "--verbose and --quiet" in _plain(result.output)
 
 
 # --- Robustness: a crash must never look like "findings found" --------------------------------
@@ -253,7 +262,7 @@ def test_an_unexpected_error_exits_2_not_1(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr("vulnrank.cli.prioritise", explode)
     result = _run(str(TRIVY), *LOCAL_INTEL, "--fail-on", "P1")
     assert result.exit_code == EXIT_ERROR
-    assert "internal error: boom" in result.stderr
+    assert "internal error: boom" in _plain(result.stderr)
 
 
 def test_a_utf16_scan_is_accepted(tmp_path: Path) -> None:
@@ -268,7 +277,7 @@ def test_an_undecodable_scan_exits_2(tmp_path: Path) -> None:
     scan.write_bytes('{"SchemaVersion": 2, "ArtifactName": "café"}'.encode("latin-1"))
     result = _run(str(scan), *LOCAL_INTEL)
     assert result.exit_code == EXIT_ERROR
-    assert "not valid UTF-8 or UTF-16" in result.stderr
+    assert "not valid UTF-8 or UTF-16" in _plain(result.stderr)
 
 
 # --- Asset matching ------------------------------------------------------------------------------
@@ -277,11 +286,11 @@ def test_an_undecodable_scan_exits_2(tmp_path: Path) -> None:
 def test_a_warning_names_targets_that_no_asset_entry_matches() -> None:
     result = _run(str(TRIVY), *LOCAL_INTEL, "--assets", str(FIXTURES / "assets.toml"))
     assert result.exit_code == EXIT_OK
-    assert "no [[assets]] entry matches 'demo-app:1.0'" in result.stderr
+    assert "no [[assets]] entry matches 'demo-app:1.0'" in _plain(result.stderr)
 
 
 def test_no_warning_without_an_assets_file() -> None:
-    assert "[[assets]]" not in _run(str(TRIVY), *LOCAL_INTEL).stderr
+    assert "[[assets]]" not in _plain(_run(str(TRIVY), *LOCAL_INTEL).stderr)
 
 
 def test_an_asset_without_a_tag_matches_every_tag(tmp_path: Path) -> None:
@@ -307,7 +316,7 @@ def test_target_overrides_the_name_from_the_scan() -> None:
 def test_strict_fails_when_enrichment_is_incomplete(tmp_path: Path) -> None:
     result = _run(str(TRIVY), "--offline", "--cache-dir", str(tmp_path), "--strict")
     assert result.exit_code == EXIT_ERROR
-    assert "enrichment incomplete" in result.stderr
+    assert "enrichment incomplete" in _plain(result.stderr)
 
 
 def test_strict_passes_when_enrichment_is_complete() -> None:
