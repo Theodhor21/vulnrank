@@ -1,0 +1,4 @@
+[[assets]]
+target = "demo-app:1.0"
+criticality = "critical"
+internet_exposed = true
