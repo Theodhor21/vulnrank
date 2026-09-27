@@ -2,6 +2,7 @@
 
 import logging
 import sys
+from collections.abc import Callable
 from contextlib import ExitStack
 from enum import StrEnum
 from pathlib import Path
@@ -19,6 +20,7 @@ from vulnrank.adapters.enrichment.kev import KevFeedClient, KevJsonFile
 from vulnrank.adapters.inputs.detect import InputFormat, open_source
 from vulnrank.adapters.outputs.json_report import JsonReporter
 from vulnrank.adapters.outputs.markdown import MarkdownReporter
+from vulnrank.adapters.outputs.sarif import SarifReporter
 from vulnrank.adapters.outputs.table import TableReporter
 from vulnrank.application.service import prioritise
 from vulnrank.config import Config, ConfigError, load_config
@@ -39,13 +41,16 @@ class OutputFormat(StrEnum):
     TABLE = "table"
     JSON = "json"
     MARKDOWN = "markdown"
+    SARIF = "sarif"
 
 
-REPORTERS: dict[OutputFormat, type[Reporter]] = {
-    OutputFormat.TABLE: TableReporter,
-    OutputFormat.JSON: JsonReporter,
-    OutputFormat.MARKDOWN: MarkdownReporter,
+REPORTERS: dict[OutputFormat, Callable[[str | None], Reporter]] = {
+    OutputFormat.TABLE: lambda _: TableReporter(),
+    OutputFormat.JSON: lambda _: JsonReporter(),
+    OutputFormat.MARKDOWN: lambda _: MarkdownReporter(),
+    OutputFormat.SARIF: lambda sarif_uri: SarifReporter(artifact_uri=sarif_uri),
 }
+
 
 app = typer.Typer(add_completion=False, pretty_exceptions_enable=False)
 
@@ -93,6 +98,10 @@ def main(
     output: Annotated[
         Path | None, typer.Option("--output", "-o", help="Write the report to this file.")
     ] = None,
+    sarif_uri: Annotated[
+        str | None,
+        typer.Option(help="Repository file SARIF alerts point to, e.g. your Dockerfile."),
+    ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Show info logs.")] = False,
     quiet: Annotated[bool, typer.Option("--quiet", "-q", help="Only show errors.")] = False,
     _version: Annotated[
@@ -114,7 +123,8 @@ def main(
                 asset_for=config.asset_for,
                 policy=config.scoring,
             )
-        _write(report, REPORTERS[output_format](), limit=top or None, output=output)
+        reporter = REPORTERS[output_format](sarif_uri)
+        _write(report, reporter, limit=top or None, output=output)
     except (ConfigError, SourceError, OSError) as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(EXIT_ERROR) from exc

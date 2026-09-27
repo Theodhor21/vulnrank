@@ -15,6 +15,7 @@ asset context, then ranks them into priority tiers P1–P4 using transparent, de
 - [x] Input adapters: Trivy JSON, CycloneDX
 - [x] Enrichment: EPSS and CISA KEV, with caching and offline mode
 - [x] CLI with table, JSON and Markdown output and a CI gate
+- [x] SARIF output for GitHub code scanning
 - [ ] Portfolio polish: architecture diagram, ADRs, badges
 
 ## Development
