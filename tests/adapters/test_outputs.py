@@ -233,3 +233,83 @@ def test_narrow_table_keeps_the_reasons_readable() -> None:
     assert "Fix" not in text
     assert "KEV" in text  # the reason column still says why
     assert text.index("CVE-2024-0001") < text.index("CVE-2024-0002")
+
+
+# --- Fix plan: "upgrade X to fix N" ------------------------------------------------------------
+
+FIX_REPORT = Report(
+    findings=tuple(
+        rank(
+            [
+                _scored(cve="CVE-2024-0001", kev=True, fixed="1.1", component="openssl"),
+                _scored(cve="CVE-2024-0001", kev=True, fixed="1.1", component="libssl1.1"),
+                _scored(cve="CVE-2024-0002", cvss=9.8, fixed="1.2", component="openssl"),
+                _scored(cve="CVE-2024-0002", cvss=9.8, fixed="1.2", component="libssl1.1"),
+                _scored(cve="CVE-2024-0003", cvss=5.0, component="zlib"),
+            ]
+        )
+    ),
+    scanned=5,
+    duplicates_removed=0,
+)
+
+
+def test_json_always_includes_the_fix_plan() -> None:
+    plan = json.loads(_render(JsonReporter(), FIX_REPORT))["fix_plan"]
+    assert plan["actions"] == [
+        {
+            "rank": 1,
+            "priority": "P1",
+            "target": "app:1.0",
+            "packages": ["libssl1.1", "openssl"],
+            "installed_version": "1.0.0",
+            "fixed_version": "1.2",
+            "vulnerabilities": ["CVE-2024-0001", "CVE-2024-0002"],
+            "by_priority": {"P1": 1, "P2": 1, "P3": 0, "P4": 0},
+            "in_kev": 1,
+        }
+    ]
+    assert plan["unfixable_findings"] == 1
+
+
+def test_markdown_fix_plan() -> None:
+    text = _render(MarkdownReporter(fixes=True), FIX_REPORT)
+    assert text.startswith("## vulnrank fix plan: app:1.0")
+    assert "1 upgrade covers 4 findings; 1 finding has no fix yet" in text
+    assert "| 1 | **P1** | libssl1.1, openssl | 1.0.0 → 1.2 | 2 (P1: 1, P2: 1) | 1 |" in text
+    assert "[CVE-2024-0001](https://nvd.nist.gov/vuln/detail/CVE-2024-0001)" in text
+
+
+def test_table_fix_plan() -> None:
+    text = _render(TableReporter(width=200, fixes=True), FIX_REPORT)
+    assert "vulnrank fix plan: app:1.0" in text
+    assert "libssl1.1, openssl" in text
+    assert "1.0.0 → 1.2" in text
+    assert "2 (P1: 1, P2: 1)" in text
+    assert "1 upgrade covers 4 findings; 1 finding has no fix yet" in text
+
+
+def test_fix_plan_limit_applies_to_upgrades() -> None:
+    two = Report(
+        findings=tuple(
+            rank(
+                [
+                    _scored(cve="CVE-2024-0001", fixed="1"),
+                    _scored(cve="CVE-2024-0002", component="z", fixed="2"),
+                ]
+            )
+        ),
+        scanned=2,
+        duplicates_removed=0,
+    )
+    assert "Showing the top 1 of 2 upgrades" in _render(MarkdownReporter(fixes=True), two, limit=1)
+
+
+def test_long_vulnerability_lists_are_shortened_in_the_table() -> None:
+    many = Report(
+        findings=tuple(rank([_scored(cve=f"CVE-2024-{n:04d}", fixed="2") for n in range(1, 8)])),
+        scanned=7,
+        duplicates_removed=0,
+    )
+    text = _render(TableReporter(width=200, fixes=True), many)
+    assert "CVE-2024-0001, CVE-2024-0002, CVE-2024-0003 +4 more" in text

@@ -64,9 +64,19 @@ def make_scored(
     fixed_version: str | None = None,
     vuln_id: str = "CVE-2024-0001",
     in_kev: bool = False,
+    component: str = "openssl",
+    version: str = "1.0.0",
+    target: str = "app:1.0",
 ) -> ScoredFinding:
     return ScoredFinding(
-        finding=make_finding(vuln_id=vuln_id, cvss=cvss, fixed_version=fixed_version),
+        finding=make_finding(
+            vuln_id=vuln_id,
+            cvss=cvss,
+            fixed_version=fixed_version,
+            component=component,
+            version=version,
+            target=target,
+        ),
         enrichment=make_enrichment(epss=epss, in_kev=in_kev),
         asset=make_asset(),
         priority=priority,

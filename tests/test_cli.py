@@ -331,3 +331,31 @@ def test_without_strict_incomplete_enrichment_is_reported_but_not_fatal(tmp_path
         "offline: no cached EPSS score for 3 CVE(s)",
         "offline: no cached KEV catalog",
     ]
+
+
+# --- Fix plan view ------------------------------------------------------------------------------
+
+
+def test_fix_view_groups_findings_into_upgrades() -> None:
+    result = _run(str(TRIVY), *ASSETS, *LOCAL_INTEL, "--view", "fixes")
+    assert result.exit_code == EXIT_OK
+    text = _plain(result.stdout)
+    assert "vulnrank fix plan: demo-app:1.0" in text
+    assert text.index("openssl") < text.index("libssl3") < text.index("urllib3")
+    assert "3 upgrades cover 4 findings; 1 finding has no fix yet" in text
+
+
+def test_json_carries_the_fix_plan_in_either_view() -> None:
+    document = _json(str(TRIVY), *ASSETS, *LOCAL_INTEL)
+    first = document["fix_plan"]["actions"][0]
+    assert (first["packages"], first["fixed_version"], first["priority"]) == (
+        ["openssl"],
+        "3.0.12-1",
+        "P1",
+    )
+
+
+def test_fix_view_is_not_available_for_sarif() -> None:
+    result = _run(str(TRIVY), *LOCAL_INTEL, "--view", "fixes", "--format", "sarif")
+    assert result.exit_code == EXIT_ERROR
+    assert "--view fixes" in _plain(result.output)
