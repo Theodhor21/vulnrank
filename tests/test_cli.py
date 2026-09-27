@@ -87,6 +87,32 @@ def test_markdown_format() -> None:
     assert result.stdout.startswith("## vulnrank: demo-app:1.0")
 
 
+def test_sarif_format_for_github_code_scanning() -> None:
+    result = _run(str(TRIVY), *ASSETS, *LOCAL_INTEL, "--format", "sarif", "--top", "0")
+    assert result.exit_code == EXIT_OK
+    document = json.loads(result.stdout)
+    assert document["version"] == "2.1.0"
+    [run] = document["runs"]
+    assert [r["ruleId"] for r in run["results"]] == [
+        "CVE-2023-0001",
+        "CVE-2023-0002",
+        "CVE-2023-0002",
+        "CVE-2023-0003",
+    ]
+    uri = run["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+    assert uri == "demo-app-1.0"
+
+
+def test_sarif_uri_points_alerts_at_a_repository_file() -> None:
+    args = ["--format", "sarif", "--sarif-uri", "docker/Dockerfile"]
+    result = _run(str(TRIVY), *LOCAL_INTEL, *args)
+    [run] = json.loads(result.stdout)["runs"]
+    uris = {
+        r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] for r in run["results"]
+    }
+    assert uris == {"docker/Dockerfile"}
+
+
 @pytest.mark.parametrize(("top", "listed"), [("1", 1), ("0", 4), ("99", 4)])
 def test_top_limits_the_listed_findings(top: str, listed: int) -> None:
     document = _json(str(TRIVY), *LOCAL_INTEL, "--top", top)
