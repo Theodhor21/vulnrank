@@ -15,6 +15,7 @@ from vulnrank.domain.models import (
     Priority,
     ScanResult,
 )
+from vulnrank.domain.baseline import Baseline, ChangeState
 from vulnrank.domain.policy import ScoringPolicy
 from vulnrank.domain.suppression import IgnoreRule, VexStatement, VexStatus
 
@@ -185,3 +186,27 @@ def test_vex_statements_are_applied() -> None:
     )
     assert report.findings == ()
     assert report.suppressed[0].reason == "VEX: fixed"
+
+
+def test_a_baseline_marks_changes_and_counts_resolved(caplog: pytest.LogCaptureFixture) -> None:
+    baseline = Baseline(
+        priorities={
+            ("app", "openssl", "CVE-2024-0001"): Priority.P3,
+            ("app", "openssl", "CVE-2024-0009"): Priority.P1,
+        },
+        complete=False,
+    )
+    with caplog.at_level(logging.WARNING, logger="vulnrank"):
+        report = prioritise(
+            ListSource([make_finding(vuln_id="CVE-2024-0001", cvss=7.5)]),
+            NoEpss(),
+            NoKev(),
+            asset_for=_assets,
+            policy=ScoringPolicy(),
+            baseline=baseline,
+        )
+    [scored] = report.findings
+    assert scored.change is not None
+    assert scored.change.state is ChangeState.UNCHANGED
+    assert report.baseline_resolved == 1
+    assert "baseline does not list every finding" in caplog.text

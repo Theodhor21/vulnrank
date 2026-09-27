@@ -14,6 +14,7 @@ import pytest
 from tests.builders import make_asset, make_enrichment, make_finding
 from vulnrank import __version__
 from vulnrank.adapters.outputs.sarif import SarifReporter, artifact_uri_for
+from vulnrank.domain.baseline import Change, ChangeState
 from vulnrank.domain.models import Criticality, Priority, Report, ScoredFinding
 from vulnrank.domain.policy import ScoringPolicy
 from vulnrank.domain.scoring import rank, score
@@ -235,3 +236,24 @@ def test_empty_report_is_still_a_valid_run() -> None:
     run = _run(_sarif(_report()))
     assert run["results"] == []
     assert run["tool"]["driver"]["rules"] == []
+
+
+def test_baseline_state_follows_the_change() -> None:
+    changed = [
+        _scored(cve="CVE-2024-0001").model_copy(
+            update={"change": Change(state=state, previous=previous)}
+        )
+        for state, previous in [
+            (ChangeState.NEW, None),
+            (ChangeState.ESCALATED, Priority.P3),
+            (ChangeState.IMPROVED, Priority.P1),
+            (ChangeState.UNCHANGED, Priority.P4),
+        ]
+    ]
+    report = Report(findings=tuple(changed), scanned=4, duplicates_removed=0, baseline_resolved=0)
+    states = [r["baselineState"] for r in _run(_sarif(report))["results"]]
+    assert states == ["new", "updated", "updated", "unchanged"]
+
+
+def test_no_baseline_state_without_a_baseline() -> None:
+    assert "baselineState" not in _run(_sarif())["results"][0]

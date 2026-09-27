@@ -398,3 +398,46 @@ def test_ignore_rules_from_the_assets_file(tmp_path: Path) -> None:
     )
     document = _json(str(TRIVY), *LOCAL_INTEL, "--assets", str(assets))
     assert document["suppressed"][0]["component"] == "urllib3"
+
+
+# --- Baseline gating --------------------------------------------------------------------------
+
+
+def _baseline(tmp_path: Path, *args: str) -> Path:
+    path = tmp_path / "baseline.json"
+    result = _run(
+        str(TRIVY), *LOCAL_INTEL, *args, "--format", "json", "--top", "0", "-o", str(path)
+    )
+    assert result.exit_code == EXIT_OK
+    return path
+
+
+def test_known_findings_do_not_trip_the_gate_against_a_baseline(tmp_path: Path) -> None:
+    baseline = _baseline(tmp_path)
+    assert _run(str(TRIVY), *LOCAL_INTEL, "--fail-on", "P1").exit_code == EXIT_FINDINGS
+    args = ["--baseline", str(baseline), "--fail-on", "P1"]
+    assert _run(str(TRIVY), *LOCAL_INTEL, *args).exit_code == EXIT_OK
+
+
+def test_an_escalated_finding_trips_the_gate(tmp_path: Path) -> None:
+    baseline = _baseline(tmp_path)  # without asset context: CVE-2023-0002 was P3
+    args = [*ASSETS, "--baseline", str(baseline)]  # critical asset: now P2
+    result = _run(str(TRIVY), *LOCAL_INTEL, *args, "--fail-on", "P2")
+    assert result.exit_code == EXIT_FINDINGS
+    assert "↑ from P3" in _plain(result.stdout)
+    assert _run(str(TRIVY), *LOCAL_INTEL, *args, "--fail-on", "P1").exit_code == EXIT_OK
+
+
+def test_an_incomplete_baseline_is_warned_about(tmp_path: Path) -> None:
+    path = tmp_path / "baseline.json"
+    _run(str(TRIVY), *LOCAL_INTEL, "--format", "json", "--top", "1", "-o", str(path))
+    result = _run(str(TRIVY), *LOCAL_INTEL, "--baseline", str(path))
+    assert "baseline does not list every finding" in _plain(result.stderr)
+
+
+def test_a_bad_baseline_exits_2(tmp_path: Path) -> None:
+    path = tmp_path / "baseline.json"
+    path.write_text("{}", encoding="utf-8")
+    result = _run(str(TRIVY), *LOCAL_INTEL, "--baseline", str(path))
+    assert result.exit_code == EXIT_ERROR
+    assert "vulnrank JSON report" in _plain(result.stderr)

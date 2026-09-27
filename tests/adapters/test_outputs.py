@@ -9,7 +9,15 @@ from vulnrank.adapters.outputs._format import advisory_url, fix
 from vulnrank.adapters.outputs.json_report import JsonReporter
 from vulnrank.adapters.outputs.markdown import MarkdownReporter
 from vulnrank.adapters.outputs.table import TableReporter
-from vulnrank.domain.models import Criticality, FixStatus, Report, ScoredFinding, Suppressed
+from vulnrank.domain.baseline import Change, ChangeState
+from vulnrank.domain.models import (
+    Criticality,
+    FixStatus,
+    Priority,
+    Report,
+    ScoredFinding,
+    Suppressed,
+)
 from vulnrank.domain.policy import ScoringPolicy
 from vulnrank.domain.scoring import rank, score
 from vulnrank.ports.reporting import Reporter
@@ -79,6 +87,7 @@ def test_json_document_structure() -> None:
         "targets": ["app:1.0"],
         "enrichment_issues": [],
         "suppressed": 0,
+        "baseline": None,
     }
     first = document["findings"][0]
     assert first["rank"] == 1
@@ -458,3 +467,54 @@ def test_json_lists_suppressed_findings_with_their_reason() -> None:
             "source": "assets.toml",
         }
     ]
+
+
+# --- Baseline comparison -------------------------------------------------------------------------
+
+
+def _changed(scored: ScoredFinding, state: ChangeState, previous: Priority | None) -> ScoredFinding:
+    return scored.model_copy(update={"change": Change(state=state, previous=previous)})
+
+
+BASELINE_REPORT = Report(
+    findings=(
+        _changed(_scored(cve="CVE-2024-0001", kev=True), ChangeState.ESCALATED, Priority.P3),
+        _changed(_scored(cve="CVE-2024-0002", cvss=9.8), ChangeState.NEW, None),
+        _changed(_scored(cve="CVE-2024-0003", cvss=5.0), ChangeState.UNCHANGED, Priority.P4),
+    ),
+    scanned=3,
+    duplicates_removed=0,
+    baseline_resolved=2,
+)
+
+
+def test_summary_reports_changes_since_the_baseline() -> None:
+    text = _render(MarkdownReporter(), BASELINE_REPORT)
+    assert "Since baseline: 1 new, 1 escalated, 0 improved, 2 resolved" in text
+
+
+@pytest.mark.parametrize(
+    "reporter", [MarkdownReporter(), TableReporter(width=200)], ids=["markdown", "table"]
+)
+def test_human_readable_reports_show_what_changed(reporter: Reporter) -> None:
+    text = _render(reporter, BASELINE_REPORT)
+    assert "Change" in text
+    assert "new" in text
+    assert "↑ from P3" in text
+
+
+def test_no_change_column_without_a_baseline() -> None:
+    assert "Change" not in _render(MarkdownReporter(), REPORT)
+
+
+def test_json_carries_changes_and_the_baseline_summary() -> None:
+    document = json.loads(_render(JsonReporter(), BASELINE_REPORT))
+    assert document["summary"]["baseline"] == {
+        "new": 1,
+        "escalated": 1,
+        "improved": 0,
+        "unchanged": 1,
+        "resolved": 2,
+    }
+    assert document["findings"][0]["change"] == {"state": "escalated", "previous": "P3"}
+    assert json.loads(_render(JsonReporter()))["summary"]["baseline"] is None
