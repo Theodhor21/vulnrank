@@ -1,0 +1,23 @@
+{
+  "matches": [
+    {
+      "vulnerability": {
+        "id": "GHSA-xxxx-yyyy-zzzz",
+        "severity": "Negligible",
+        "cvss": [{ "version": "3.1", "metrics": { "baseScore": 4.0 } }],
+        "fix": { "versions": ["2.0.1", "1.9.9"], "state": "fixed" }
+      },
+      "relatedVulnerabilities": [{ "id": "CVE-2023-2000" }],
+      "artifact": { "name": "zlib", "version": "1.9.0", "type": "npm" }
+    },
+    {
+      "vulnerability": { "id": "CVE-2023-2001", "fix": { "state": "wont-fix" } },
+      "artifact": { "name": "busybox", "version": "1.36.1", "type": "apk" }
+    },
+    { "vulnerability": { "id": "CVE-2023-2002" } },
+    { "vulnerability": { "id": "not an id" }, "artifact": { "name": "a", "version": "1" } },
+    "junk"
+  ],
+  "source": { "type": "directory", "target": "/src/app" },
+  "descriptor": { "name": "grype" }
+}

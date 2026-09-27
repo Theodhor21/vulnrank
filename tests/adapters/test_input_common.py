@@ -17,6 +17,7 @@ from vulnrank.domain.models import Severity
         (" High ", Severity.HIGH),
         ("info", Severity.LOW),
         ("none", Severity.LOW),
+        ("Negligible", Severity.LOW),
         ("UNKNOWN", Severity.UNKNOWN),
         ("weird", Severity.UNKNOWN),
         (None, Severity.UNKNOWN),

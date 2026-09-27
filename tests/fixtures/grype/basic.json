@@ -1,0 +1,99 @@
+{
+  "matches": [
+    {
+      "vulnerability": {
+        "id": "CVE-2023-0001",
+        "namespace": "debian:distro:debian:12",
+        "severity": "High",
+        "cvss": [
+          {
+            "source": "nvd@nist.gov",
+            "type": "Primary",
+            "version": "3.1",
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+            "metrics": { "baseScore": 7.5 }
+          }
+        ],
+        "fix": { "versions": ["3.0.11-1~deb12u1"], "state": "fixed" }
+      },
+      "relatedVulnerabilities": [],
+      "artifact": {
+        "name": "openssl",
+        "version": "3.0.9-1",
+        "type": "deb",
+        "purl": "pkg:deb/debian/openssl@3.0.9-1?arch=amd64&distro=debian-12.1"
+      }
+    },
+    {
+      "vulnerability": {
+        "id": "CVE-2023-0002",
+        "severity": "Critical",
+        "cvss": [
+          { "source": "nvd@nist.gov", "version": "3.1", "metrics": { "baseScore": 9.8 } },
+          { "source": "secalert@redhat.com", "version": "3.1", "metrics": { "baseScore": 8.1 } }
+        ],
+        "fix": { "versions": ["3.0.12-1"], "state": "fixed" }
+      },
+      "artifact": {
+        "name": "libssl3",
+        "version": "3.0.9-1",
+        "type": "deb",
+        "purl": "pkg:deb/debian/libssl3@3.0.9-1?arch=amd64&distro=debian-12.1"
+      }
+    },
+    {
+      "vulnerability": {
+        "id": "CVE-2023-0002",
+        "severity": "Critical",
+        "cvss": [{ "source": "nvd@nist.gov", "version": "3.1", "metrics": { "baseScore": 9.8 } }],
+        "fix": { "versions": ["3.0.12-1"], "state": "fixed" }
+      },
+      "artifact": {
+        "name": "openssl",
+        "version": "3.0.9-1",
+        "type": "deb",
+        "purl": "pkg:deb/debian/openssl@3.0.9-1?arch=amd64&distro=debian-12.1"
+      }
+    },
+    {
+      "vulnerability": {
+        "id": "CVE-2023-0003",
+        "severity": "Medium",
+        "cvss": [
+          {
+            "source": "security-advisories@github.com",
+            "version": "3.1",
+            "metrics": { "baseScore": 5.3 }
+          },
+          { "source": "nvd@nist.gov", "version": "4.0", "metrics": { "baseScore": 6.9 } }
+        ],
+        "fix": { "versions": [], "state": "not-fixed" }
+      },
+      "artifact": {
+        "name": "requests",
+        "version": "2.25.0",
+        "type": "python",
+        "purl": "pkg:pypi/requests@2.25.0"
+      }
+    },
+    {
+      "vulnerability": {
+        "id": "GHSA-aaaa-bbbb-cccc",
+        "severity": "Low",
+        "fix": { "versions": ["1.26.18"], "state": "fixed" }
+      },
+      "relatedVulnerabilities": [],
+      "artifact": {
+        "name": "urllib3",
+        "version": "1.26.0",
+        "type": "python",
+        "purl": "pkg:pypi/urllib3@1.26.0"
+      }
+    }
+  ],
+  "source": {
+    "type": "image",
+    "target": { "userInput": "demo-app:1.0", "imageID": "sha256:0123" }
+  },
+  "descriptor": { "name": "grype", "version": "0.119.0" }
+}

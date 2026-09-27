@@ -441,3 +441,12 @@ def test_a_bad_baseline_exits_2(tmp_path: Path) -> None:
     result = _run(str(TRIVY), *LOCAL_INTEL, "--baseline", str(path))
     assert result.exit_code == EXIT_ERROR
     assert "vulnrank JSON report" in _plain(result.stderr)
+
+
+# --- Grype input ---------------------------------------------------------------------------------
+
+
+def test_a_grype_report_gives_the_same_ranking_as_trivy() -> None:
+    from_trivy = _json(str(TRIVY), *ASSETS, *LOCAL_INTEL)
+    from_grype = _json(str(FIXTURES / "grype" / "basic.json"), *ASSETS, *LOCAL_INTEL)
+    assert from_grype["findings"] == from_trivy["findings"]

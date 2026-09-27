@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from vulnrank.adapters.inputs.cyclonedx import CycloneDxSource
+from vulnrank.adapters.inputs.grype import GrypeJsonSource
 from vulnrank.adapters.inputs.trivy_json import TrivyJsonSource
 from vulnrank.domain.models import Finding
 
@@ -45,3 +46,9 @@ def test_grouped_package_names_keep_their_group() -> None:
         ("@scope/once", "2.0.1"),
         ("org.example.logging:logging-core", "2.17.1"),
     }
+
+
+def test_trivy_and_grype_yield_identical_findings_including_fix_status() -> None:
+    trivy = TrivyJsonSource(FIXTURES / "trivy" / "basic.json").load().findings
+    grype = GrypeJsonSource(FIXTURES / "grype" / "basic.json").load().findings
+    assert sorted(trivy, key=lambda f: f.key) == sorted(grype, key=lambda f: f.key)
