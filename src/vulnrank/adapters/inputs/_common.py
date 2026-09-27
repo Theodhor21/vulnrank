@@ -7,7 +7,7 @@ from vulnrank.domain.models import Severity
 
 logger = logging.getLogger(__name__)
 
-_SEVERITY_ALIASES = {"info": Severity.LOW, "none": Severity.LOW}
+_SEVERITY_ALIASES = {"info": Severity.LOW, "none": Severity.LOW, "negligible": Severity.LOW}
 
 
 class CvssCandidate(NamedTuple):

@@ -68,3 +68,16 @@ def test_malformed_matches_are_logged_skipped_and_counted(
 def test_other_documents_are_a_source_error(document: object) -> None:
     with pytest.raises(SourceError, match="not a Grype JSON report"):
         parse_grype_report(document, default_target="x")
+
+
+def test_cvss_v2_scores_are_ignored() -> None:
+    match = {
+        "vulnerability": {
+            "id": "CVE-2024-0001",
+            "cvss": [{"source": "nvd@nist.gov", "version": "2.0", "metrics": {"baseScore": 10.0}}],
+        },
+        "artifact": {"name": "a", "version": "1"},
+    }
+    document = {"matches": [match], "descriptor": {"name": "grype"}}
+    [finding] = parse_grype_report(document, default_target="x").findings
+    assert finding.vulnerability.cvss_score is None

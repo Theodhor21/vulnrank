@@ -76,7 +76,10 @@ def _print_version(value: bool) -> None:
 @app.command()
 def main(
     scan: Annotated[
-        Path, typer.Argument(help="Trivy JSON report or CycloneDX JSON SBOM.", show_default=False)
+        Path,
+        typer.Argument(
+            help="Trivy or Grype JSON report, or CycloneDX JSON SBOM.", show_default=False
+        ),
     ],
     assets: Annotated[
         Path | None, typer.Option("--assets", "-a", help="TOML file with asset context.")

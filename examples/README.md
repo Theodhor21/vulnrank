@@ -19,6 +19,13 @@ trivy image --scanners vuln --format cyclonedx --output examples/nginx-1.19.cdx.
 trivy image --scanners vuln --format cyclonedx --output examples/juice-shop.cdx.json bkimminich/juice-shop
 ```
 
+With [Grype](https://github.com/anchore/grype):
+
+```sh
+grype nginx:1.19 -o json --file examples/nginx-1.19.grype.json
+grype bkimminich/juice-shop -o json --file examples/juice-shop.grype.json
+```
+
 `--scanners vuln` matters for CycloneDX: by default `--format cyclonedx` produces an SBOM
 **without** vulnerabilities.
 
