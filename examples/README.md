@@ -22,5 +22,8 @@ trivy image --scanners vuln --format cyclonedx --output examples/juice-shop.cdx.
 `--scanners vuln` matters for CycloneDX: by default `--format cyclonedx` produces an SBOM
 **without** vulnerabilities.
 
+The `nginx:1.19` and Juice Shop scans are committed. The `python:3.8` scans are about 50 MB
+each, too large for the repository, so generate them locally when you need them.
+
 Scan results change over time as new CVEs are published, so the output of `vulnrank` on
 these files will drift too. Re-run the commands above to refresh them.

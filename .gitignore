@@ -25,3 +25,6 @@ htmlcov/
 .env
 .vscode/
 .idea/
+
+# Example scans too large for the repo (regenerate with examples/README.md)
+examples/python-3.8.*.json
