@@ -2,7 +2,8 @@ import pytest
 
 from tests.builders import make_scored
 from vulnrank.domain.models import Priority, ScoredFinding
-from vulnrank.domain.remediation import plan_fixes, version_key
+from vulnrank.domain.models import FixStatus
+from vulnrank.domain.remediation import plan_fixes
 
 P1, P2, P3, P4 = Priority.P1, Priority.P2, Priority.P3, Priority.P4
 
@@ -17,6 +18,8 @@ def _finding(
     target: str = "app:1.0",
     in_kev: bool = False,
     epss: float | None = None,
+    ecosystem: str | None = None,
+    status: FixStatus | None = None,
 ) -> ScoredFinding:
     return make_scored(
         priority=priority,
@@ -27,25 +30,9 @@ def _finding(
         target=target,
         in_kev=in_kev,
         epss=epss,
+        ecosystem=ecosystem,
+        status=status,
     )
-
-
-# --- Version ordering -----------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("lower", "higher"),
-    [
-        ("7.88.1-10+deb12u9", "7.88.1-10+deb12u10"),  # numeric, not alphabetical
-        ("1.1.1d-0+deb10u7", "1.1.1n-0+deb10u3"),
-        ("3.0.11-1~deb12u1", "3.0.12-1"),
-        ("2.0", "10.0"),
-        ("1.2.3", "1.2.3.1"),
-        ("1.26.0", "1.26.18"),
-    ],
-)
-def test_versions_compare_in_natural_order(lower: str, higher: str) -> None:
-    assert version_key(lower) < version_key(higher)
 
 
 # --- Grouping ------------------------------------------------------------------------------------
@@ -54,8 +41,8 @@ def test_versions_compare_in_natural_order(lower: str, higher: str) -> None:
 def test_one_action_per_package_targets_the_highest_fix_version() -> None:
     plan = plan_fixes(
         [
-            _finding("CVE-2024-0001", "curl", "7.88.1-10+deb12u9"),
-            _finding("CVE-2024-0002", "curl", "7.88.1-10+deb12u10"),
+            _finding("CVE-2024-0001", "curl", "7.88.1-10+deb12u9", ecosystem="deb"),
+            _finding("CVE-2024-0002", "curl", "7.88.1-10+deb12u10", ecosystem="deb"),
         ]
     )
     [action] = plan.actions
@@ -154,3 +141,64 @@ def test_actions_are_ordered_by_tier_then_kev_then_size() -> None:
 def test_empty_input_gives_an_empty_plan() -> None:
     plan = plan_fixes([])
     assert (plan.actions, plan.unfixable, plan.fixable_findings) == ((), (), 0)
+
+
+# --- Version edge cases found in real scans -------------------------------------------------------
+
+
+def test_multi_branch_fixes_pick_the_smallest_upgrade_that_fixes_everything() -> None:
+    """CVE-A is fixed on the 3.1 branch in 3.1.2; CVE-B in 3.1.1. Only 3.1.2 fixes both."""
+    plan = plan_fixes(
+        [
+            _finding("CVE-2024-0001", "lib", "3.0.8, 3.1.2", version="3.1.0", ecosystem="npm"),
+            _finding("CVE-2024-0002", "lib", "3.1.1", version="3.1.0", ecosystem="npm"),
+        ]
+    )
+    assert plan.actions[0].fixed_version == "3.1.2"
+
+
+@pytest.mark.parametrize(
+    ("fixes", "expected"),
+    [
+        (("1.2.3", "1.2.3~rc1"), "1.2.3"),
+        (("1:1.2-1", "2.0-1"), "1:1.2-1"),
+    ],
+    ids=["tilde-pre-release", "epoch"],
+)
+def test_debian_versions_follow_dpkg_rules(fixes: tuple[str, str], expected: str) -> None:
+    plan = plan_fixes(
+        [
+            _finding(f"CVE-2024-000{n}", "lib", fix, version="0.1", ecosystem="deb")
+            for n, fix in enumerate(fixes, start=1)
+        ]
+    )
+    assert plan.actions[0].fixed_version == expected
+
+
+def test_same_name_in_different_ecosystems_is_never_merged() -> None:
+    plan = plan_fixes(
+        [
+            _finding("CVE-2024-0001", "debug", "4.3.2", version="4.3.1", ecosystem="npm"),
+            _finding("CVE-2024-0002", "debug", "4.3.9", version="4.3.1", ecosystem="pypi"),
+        ]
+    )
+    assert sorted(a.fixed_version for a in plan.actions) == ["4.3.2", "4.3.9"]
+
+
+def test_unfixable_findings_are_counted_by_vendor_status() -> None:
+    plan = plan_fixes(
+        [
+            _finding("CVE-2024-0001", "a", None, status=FixStatus.WILL_NOT_FIX),
+            _finding("CVE-2024-0002", "b", None, status=FixStatus.WILL_NOT_FIX),
+            _finding("CVE-2024-0003", "c", None, status=FixStatus.FIX_DEFERRED),
+            _finding("CVE-2024-0004", "d", None, status=FixStatus.END_OF_LIFE),
+            _finding("CVE-2024-0005", "e", None, status=FixStatus.AFFECTED),
+            _finding("CVE-2024-0006", "f", None),
+        ]
+    )
+    assert plan.unfixable_by_status == {
+        "not yet fixed": 2,
+        "will not fix": 2,
+        "deferred": 1,
+        "end-of-life": 1,
+    }

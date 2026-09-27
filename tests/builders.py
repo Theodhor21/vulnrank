@@ -27,9 +27,10 @@ def make_finding(
     target: str = "app:1.0",
     severity: Severity = Severity.UNKNOWN,
     status: FixStatus | None = None,
+    ecosystem: str | None = None,
 ) -> Finding:
     return Finding(
-        component=Component(name=component, version=version),
+        component=Component(name=component, version=version, ecosystem=ecosystem),
         vulnerability=Vulnerability(
             vuln_id=vuln_id,
             cvss_score=cvss,
@@ -67,6 +68,8 @@ def make_scored(
     component: str = "openssl",
     version: str = "1.0.0",
     target: str = "app:1.0",
+    ecosystem: str | None = None,
+    status: FixStatus | None = None,
 ) -> ScoredFinding:
     return ScoredFinding(
         finding=make_finding(
@@ -76,6 +79,8 @@ def make_scored(
             component=component,
             version=version,
             target=target,
+            ecosystem=ecosystem,
+            status=status,
         ),
         enrichment=make_enrichment(epss=epss, in_kev=in_kev),
         asset=make_asset(),

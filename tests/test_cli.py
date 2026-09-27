@@ -342,7 +342,7 @@ def test_fix_view_groups_findings_into_upgrades() -> None:
     text = _plain(result.stdout)
     assert "vulnrank fix plan: demo-app:1.0" in text
     assert text.index("openssl") < text.index("libssl3") < text.index("urllib3")
-    assert "3 upgrades cover 4 findings; 1 finding has no fix yet" in text
+    assert "3 upgrades cover 4 findings; 1 finding has no fix (1 not yet fixed)" in text
 
 
 def test_json_carries_the_fix_plan_in_either_view() -> None:

@@ -269,14 +269,19 @@ def test_json_always_includes_the_fix_plan() -> None:
             "in_kev": 1,
         }
     ]
-    assert plan["unfixable_findings"] == 1
+    assert plan["total_actions"] == 1
+    assert plan["unfixable"] == {"count": 1, "by_status": {"not yet fixed": 1}}
 
 
 def test_markdown_fix_plan() -> None:
     text = _render(MarkdownReporter(fixes=True), FIX_REPORT)
     assert text.startswith("## vulnrank fix plan: app:1.0")
-    assert "1 upgrade covers 4 findings; 1 finding has no fix yet" in text
+    assert "1 upgrade covers 4 findings; 1 finding has no fix (1 not yet fixed)" in text
     assert "| 1 | **P1** | libssl1.1, openssl | 1.0.0 → 1.2 | 2 (P1: 1, P2: 1) | 1 |" in text
+    assert (
+        "| **P4** | [CVE-2024-0003](https://nvd.nist.gov/vuln/detail/CVE-2024-0003) | zlib 1.0.0 | not yet fixed |"
+        in text
+    )
     assert "[CVE-2024-0001](https://nvd.nist.gov/vuln/detail/CVE-2024-0001)" in text
 
 
@@ -286,7 +291,9 @@ def test_table_fix_plan() -> None:
     assert "libssl1.1, openssl" in text
     assert "1.0.0 → 1.2" in text
     assert "2 (P1: 1, P2: 1)" in text
-    assert "1 upgrade covers 4 findings; 1 finding has no fix yet" in text
+    assert "1 upgrade covers 4 findings; 1 finding has no fix (1 not yet fixed)" in text
+    assert "Without a fix" in text
+    assert "CVE-2024-0003" in text
 
 
 def test_fix_plan_limit_applies_to_upgrades() -> None:
@@ -341,7 +348,7 @@ def test_fix_plan_without_any_fix(reporter: Reporter) -> None:
         findings=(_scored(cve="CVE-2024-0003"),), scanned=1, duplicates_removed=0
     )
     text = _render(reporter, nothing_fixable)
-    assert "0 upgrades cover 0 findings; 1 finding has no fix yet" in text
+    assert "0 upgrades cover 0 findings; 1 finding has no fix (1 not yet fixed)" in text
     assert "Upgrade" not in text.replace("upgrades cover", "")
 
 
@@ -357,3 +364,55 @@ def test_fix_plan_table_shows_targets_when_there_are_several() -> None:
     text = _render(TableReporter(width=200, fixes=True), report)
     assert "Target" in text
     assert "api:2" in text
+
+
+def test_json_fix_plan_respects_the_limit() -> None:
+    two = Report(
+        findings=tuple(
+            rank(
+                [
+                    _scored(cve="CVE-2024-0001", fixed="1"),
+                    _scored(cve="CVE-2024-0002", component="z", fixed="2"),
+                ]
+            )
+        ),
+        scanned=2,
+        duplicates_removed=0,
+    )
+    plan = json.loads(_render(JsonReporter(), two, limit=1))["fix_plan"]
+    assert len(plan["actions"]) == 1
+    assert plan["total_actions"] == 2
+
+
+def test_markdown_fix_plan_shows_targets_when_there_are_several() -> None:
+    report = Report(
+        findings=(
+            _scored(cve="CVE-2024-0001", fixed="2", target="api:2"),
+            _scored(cve="CVE-2024-0001", fixed="2", target="web:1"),
+        ),
+        scanned=2,
+        duplicates_removed=0,
+    )
+    text = _render(MarkdownReporter(fixes=True), report)
+    assert "| # | Tier | Target | Upgrade |" in text
+    assert "| api:2 |" in text
+
+
+def test_narrow_fix_table_drops_secondary_columns() -> None:
+    text = _render(TableReporter(width=80, fixes=True), FIX_REPORT)
+    assert "Upgrade" in text
+    assert "1.0.0 → 1.2" in text
+    assert "IDs" not in text
+    assert "…" not in text
+
+
+def test_only_the_most_urgent_unfixable_findings_are_listed() -> None:
+    many = Report(
+        findings=tuple(rank([_scored(cve=f"CVE-2024-{n:04d}") for n in range(1, 9)])),
+        scanned=8,
+        duplicates_removed=0,
+    )
+    text = _render(MarkdownReporter(fixes=True), many)
+    assert "CVE-2024-0005" in text
+    assert "CVE-2024-0006" not in text
+    assert "3 more without a fix; see `--view findings`" in text
