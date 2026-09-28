@@ -82,6 +82,7 @@ def prioritise(
         skipped=loaded.skipped,
         duplicates_removed=len(findings) - len(unique),
         enrichment_issues=(*epss.issues(), *kev.issues()),
+        input_issues=loaded.issues,
     )
 
 

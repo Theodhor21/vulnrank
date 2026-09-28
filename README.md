@@ -92,9 +92,9 @@ uv run vulnrank scan.json --assets assets.toml --top 20
 | `--format table\|json\|markdown\|sarif` | Terminal table (default), JSON for tools, Markdown for PRs, SARIF for GitHub code scanning |
 | `--assets FILE` | Asset context and scoring thresholds ([example](examples/assets.toml)) |
 | `--view findings\|fixes` | Ranked findings (default), or upgrades grouped by fix |
-| `--top N` | List the top N findings or upgrades (default 20, `0` = all) |
+| `--top N` | List the top N findings or upgrades (`0` = all). Default: 20 for table and Markdown, all for JSON and SARIF |
 | `--fail-on P1` | Exit with code 1 if any finding is at this tier or above: a CI gate |
-| `--strict` | Exit with code 2 if EPSS or KEV data could not be loaded, so a gate never passes blind |
+| `--strict` | Exit with code 2 if the verdict is unreliable: EPSS or KEV data missing or over a week old, malformed records skipped, or an SBOM without vulnerability data |
 | `--target NAME` | Report findings under this name and match assets against it |
 | `--baseline FILE` | Compare with an earlier JSON report; `--fail-on` then counts only new or escalated findings |
 | `--vex FILE` | OpenVEX document; `not_affected` and `fixed` statements suppress findings |
@@ -178,7 +178,7 @@ steps:
   - uses: Theodhor21/vulnrank@main
     with:
       scan: scan.json
-      args: --assets assets.toml --format sarif --top 0 --output vulnrank.sarif --fail-on P1
+      args: --assets assets.toml --format sarif --output vulnrank.sarif --fail-on P1 --strict
   - uses: github/codeql-action/upload-sarif@v4
     if: always() # upload results even when the gate fails
     with:
@@ -254,7 +254,7 @@ every module in the core and fails if it imports an adapter or an I/O library.
 
 ## Engineering notes
 
-- **Tested without the network.** 510 tests at 100% line and branch coverage, enforced in
+- **Tested without the network.** 544 tests at 100% line and branch coverage, enforced in
   CI. Every test runs inside an HTTP mock, so a test that forgets to mock a request fails
   instead of reaching the internet.
 - **Test-first.** Later features were written test-first; the history shows each
@@ -263,8 +263,8 @@ every module in the core and fails if it imports an adapter or an I/O library.
   produce identical findings. Comparing real Juice Shop scans this way caught a bug the
   hand-written fixtures had missed (scoped npm packages were named differently in CycloneDX).
 - **Real data in the tests.** Version-ordering tests use strings from real scans (Debian
-  epochs and `~`, npm multi-branch fixes), after a code review found the fix plan picking
-  unusable upgrade targets on Juice Shop.
+  epochs and `~`, npm and Go multi-branch fixes), after reviews found the fix plan picking
+  unusable or still-vulnerable upgrade targets on Juice Shop and etcd.
 - **The GitHub Action is tested end to end** in CI, against the fixtures and offline.
 - **Strict typing.** pyright in strict mode and Pydantic validation at every boundary.
 - **Resilient by design.** A malformed record is logged and skipped, never fatal. If EPSS
@@ -287,9 +287,14 @@ Design decisions are recorded as short ADRs:
   alias listed in `references` is used when present.
 - **KEV outages.** If the KEV feed cannot be downloaded and nothing is cached, CVEs are
   treated as not in KEV. The report warns about it, and `--strict` turns it into exit code 2.
-- **Severity labels can differ between formats.** CycloneDX does not record which vendor
-  rating Trivy chose, so the display-only severity field may differ from the Trivy JSON
-  report. Tiers and ordering are unaffected.
+- **Scanners and formats disagree.** Trivy JSON, Trivy's CycloneDX export and Grype can report
+  different severities, CVSS scores and even packages for the same image (their databases
+  differ). Where a finding has no CVSS score its severity decides the tier, so tiers can
+  differ: on `python:3.8`, 272 of 11,706 findings get a different tier from Trivy JSON than
+  from its CycloneDX export. Use one scanner and format consistently for baselines.
+- **Version ordering outside Debian is a heuristic.** Debian versions follow dpkg's rules
+  exactly; other ecosystems use numeric ordering with common pre-release words, which covers
+  SemVer, PEP 440, Go and Alpine versions seen in practice but not every edge case.
 - **No reachability analysis.** A vulnerable package is ranked whether or not the code path
   is used in the container (e.g. kernel headers in `linux-libc-dev`); an `[[ignore]]` rule is
   the way to record that decision.

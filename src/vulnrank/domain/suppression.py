@@ -13,12 +13,12 @@ Suppressed findings are reported separately, never silently dropped.
 
 import re
 from collections.abc import Iterable
-from datetime import date
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from fnmatch import fnmatchcase
-from typing import Self
+from typing import Annotated, Self
 
-from pydantic import AliasChoices, Field, model_validator
+from pydantic import AliasChoices, BeforeValidator, Field, field_validator, model_validator
 
 from vulnrank.domain.models import (
     DomainModel,
@@ -26,6 +26,7 @@ from vulnrank.domain.models import (
     NonEmptyStr,
     ScoredFinding,
     Suppressed,
+    normalise_advisory_id,
 )
 from vulnrank.domain.targets import image_repository
 
@@ -43,6 +44,15 @@ class VexStatus(StrEnum):
 
 
 SUPPRESSING_VEX = frozenset({VexStatus.NOT_AFFECTED, VexStatus.FIXED})
+_EARLIEST = datetime.min.replace(tzinfo=UTC)
+
+
+def canonical_id(vuln_id: str) -> str:
+    """`cve-2024-1` -> `CVE-2024-1`, as scan IDs are normalised; anything else stays as given."""
+    try:
+        return normalise_advisory_id(vuln_id)
+    except ValueError:
+        return vuln_id.strip()
 
 
 class IgnoreRule(DomainModel):
@@ -54,6 +64,11 @@ class IgnoreRule(DomainModel):
     reason: NonEmptyStr
     expires: date | None = None
     source: NonEmptyStr = "config"
+
+    @field_validator("vuln_id")
+    @classmethod
+    def _canonical_id(cls, vuln_id: str | None) -> str | None:
+        return canonical_id(vuln_id) if vuln_id else vuln_id
 
     @model_validator(mode="after")
     def _has_a_subject(self) -> Self:
@@ -78,14 +93,45 @@ class IgnoreRule(DomainModel):
         return not self.target or _target_matches(self.target, finding.target)
 
 
+class VexProduct(DomainModel):
+    """An OpenVEX product: a purl, optionally narrowed to some of its subcomponents."""
+
+    purl: str | None = None
+    subcomponents: tuple[str, ...] = ()
+
+    def matches(self, scored: ScoredFinding) -> bool:
+        finding = scored.finding
+        if self.purl is not None and not self.purl.startswith("pkg:oci/"):
+            return _purl_matches(self.purl, finding.component.purl)  # a package product
+        if self.purl is not None and not _image_matches(self.purl, finding.target):
+            return False  # a statement about another image
+        if not self.subcomponents:
+            return True
+        return any(_purl_matches(p, finding.component.purl) for p in self.subcomponents)
+
+
+def _purl_as_product(value: object) -> object:
+    """OpenVEX v0.0.x lists products as plain purl strings."""
+    return {"purl": value} if isinstance(value, str) else value
+
+
+ProductOrPurl = Annotated[VexProduct, BeforeValidator(_purl_as_product)]
+
+
 class VexStatement(DomainModel):
     """One OpenVEX statement. No products means it applies to every product."""
 
     vuln_ids: tuple[str, ...]  # the vulnerability name and its aliases
     status: VexStatus
-    products: tuple[str, ...] = ()  # purls of products and subcomponents
+    products: tuple[ProductOrPurl, ...] = ()
     justification: str | None = None
+    timestamp: datetime | None = None
     source: NonEmptyStr
+
+    @field_validator("vuln_ids")
+    @classmethod
+    def _canonical_ids(cls, vuln_ids: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(canonical_id(vuln_id) for vuln_id in vuln_ids)
 
     @property
     def reason(self) -> str:
@@ -93,16 +139,9 @@ class VexStatement(DomainModel):
         return f"VEX: {self.status}{suffix}"
 
     def matches(self, scored: ScoredFinding) -> bool:
-        finding = scored.finding
-        if finding.vulnerability.vuln_id not in self.vuln_ids:
+        if scored.finding.vulnerability.vuln_id not in self.vuln_ids:
             return False
-        packages = [p for p in self.products if not p.startswith("pkg:oci/")]
-        if packages:
-            return any(_purl_matches(p, finding.component.purl) for p in packages)
-        images = [p for p in self.products if p.startswith("pkg:oci/")]
-        if images:
-            return any(_image_matches(p, finding.target) for p in images)
-        return True
+        return not self.products or any(product.matches(scored) for product in self.products)
 
 
 class SuppressionResult(DomainModel):
@@ -119,12 +158,13 @@ def apply_suppressions(
     today: date,
 ) -> SuppressionResult:
     active = [rule for rule in rules if rule.is_active(today)]
-    vex = [s for s in statements if s.status in SUPPRESSING_VEX]
     kept: list[ScoredFinding] = []
     suppressed: list[Suppressed] = []
     for scored in findings:
         verdict = (
-            _scan_verdict(scored) or _vex_verdict(scored, vex) or _rule_verdict(scored, active)
+            _scan_verdict(scored)
+            or _vex_verdict(scored, statements)
+            or _rule_verdict(scored, active)
         )
         if verdict is None:
             kept.append(scored)
@@ -146,9 +186,17 @@ def _scan_verdict(scored: ScoredFinding) -> tuple[str, str] | None:
     return None
 
 
-def _vex_verdict(scored: ScoredFinding, statements: list[VexStatement]) -> tuple[str, str] | None:
-    statement = next((s for s in statements if s.matches(scored)), None)
-    return None if statement is None else (statement.reason, statement.source)
+def _vex_verdict(
+    scored: ScoredFinding, statements: tuple[VexStatement, ...]
+) -> tuple[str, str] | None:
+    """The latest matching statement decides (by timestamp, then by order of appearance)."""
+    matching = [(index, s) for index, s in enumerate(statements) if s.matches(scored)]
+    if not matching:
+        return None
+    _, latest = max(matching, key=lambda item: (item[1].timestamp or _EARLIEST, item[0]))
+    if latest.status not in SUPPRESSING_VEX:
+        return None
+    return latest.reason, latest.source
 
 
 def _rule_verdict(scored: ScoredFinding, rules: list[IgnoreRule]) -> tuple[str, str] | None:

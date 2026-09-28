@@ -25,12 +25,17 @@ runs:
 
     - name: Run vulnrank
       shell: bash
-      # Inputs are passed through the environment, never pasted into the script.
+      # Inputs are passed through the environment, never pasted into the script. Python's shlex
+      # splits the options like a shell would (quotes keep spaces) but never runs or expands
+      # anything, and vulnrank's exit code is passed through unchanged.
       env:
         VULNRANK_SOURCE: ${{ github.action_path }}
         VULNRANK_SCAN: ${{ inputs.scan }}
         VULNRANK_ARGS: ${{ inputs.args }}
       run: |
-        set -f  # split VULNRANK_ARGS into options, but never expand globs in it
-        # shellcheck disable=SC2086
-        uvx --from "$VULNRANK_SOURCE" vulnrank "$VULNRANK_SCAN" $VULNRANK_ARGS
+        python3 -c '
+        import os, shlex, subprocess, sys
+        command = ["uvx", "--from", os.environ["VULNRANK_SOURCE"], "vulnrank",
+                   os.environ["VULNRANK_SCAN"], *shlex.split(os.environ["VULNRANK_ARGS"])]
+        sys.exit(subprocess.call(command))
+        '

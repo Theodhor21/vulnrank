@@ -122,3 +122,11 @@ def test_upgrade_target_fixes_every_cve(
 @pytest.mark.parametrize(("a", "b"), [("v1.2.0", "1.2.0"), ("V2", "2")])
 def test_a_leading_v_is_ignored(a: str, b: str) -> None:
     assert compare_versions(a, b, "golang") == 0
+
+
+def test_no_listed_fix_gives_no_target() -> None:
+    assert upgrade_target("1.0", ["", " , "], "npm") == ""
+
+
+def test_debian_takes_the_lowest_listed_fix_above_the_installed_version() -> None:
+    assert upgrade_target("1.0-1", ["1.2-1, 1.1-1"], "deb") == "1.1-1"

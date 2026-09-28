@@ -7,7 +7,7 @@ Feed facts this relies on (checked against the CISA schema, 2026-09): the docume
 import logging
 import time
 from collections.abc import Collection, Mapping
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import httpx
@@ -15,7 +15,7 @@ from pydantic import Field, TypeAdapter, ValidationError
 
 from vulnrank.adapters._raw import RawModel, describe, read_json
 from vulnrank.adapters.enrichment._http import Sleep, get_json
-from vulnrank.adapters.enrichment.cache import JsonCache
+from vulnrank.adapters.enrichment.cache import MAX_DATA_AGE, JsonCache
 from vulnrank.domain.models import KevEntry
 from vulnrank.ports.sources import SourceError
 
@@ -25,7 +25,7 @@ KEV_FEED_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_v
 CACHE_KEY = "catalog"
 
 Catalog = dict[str, KevEntry]
-_CACHED_CATALOG = TypeAdapter(dict[str, date])
+_CACHED_CATALOG = TypeAdapter(dict[str, date | None])
 
 
 class _Feed(RawModel):
@@ -34,7 +34,7 @@ class _Feed(RawModel):
 
 class _Item(RawModel):
     cve_id: str = Field(alias="cveID")
-    date_added: date = Field(alias="dateAdded")
+    date_added: str | None = Field(default=None, alias="dateAdded")
 
 
 def parse_feed(document: object) -> Catalog:
@@ -47,7 +47,7 @@ def parse_feed(document: object) -> Catalog:
     for index, raw in enumerate(feed.vulnerabilities):
         try:
             item = _Item.model_validate(raw)
-            entry = KevEntry(cve_id=item.cve_id, date_added=item.date_added)
+            entry = KevEntry(cve_id=item.cve_id, date_added=_date(item, index))
         except ValidationError as exc:
             logger.warning(
                 "skipping malformed KEV entry vulnerabilities[%d]: %s", index, describe(exc)
@@ -55,6 +55,19 @@ def parse_feed(document: object) -> Catalog:
             continue
         catalog[entry.cve_id] = entry
     return catalog
+
+
+def _date(item: _Item, index: int) -> date | None:
+    try:
+        return date.fromisoformat(item.date_added or "")
+    except ValueError:
+        logger.warning(
+            "KEV entry vulnerabilities[%d] (%s) has an invalid dateAdded %r; kept without a date",
+            index,
+            item.cve_id,
+            item.date_added,
+        )
+        return None
 
 
 def _lookup(catalog: Catalog, cve_ids: Collection[str]) -> dict[str, KevEntry]:
@@ -85,6 +98,12 @@ class KevFeedClient:
         self._sleep = sleep
         self._catalog: Catalog | None = None
         self._issues: list[str] = []
+        self._age: timedelta | None = None
+
+    def _note_age(self) -> None:
+        """Cached data older than a week makes the gate unreliable: record it as an issue."""
+        if self._age is not None and self._age > MAX_DATA_AGE:
+            self._issues.append(f"the KEV catalog is {self._age.days} days old")
 
     def lookup(self, cve_ids: Collection[str]) -> Mapping[str, KevEntry]:
         if self._catalog is None:
@@ -100,7 +119,9 @@ class KevFeedClient:
         if self._cache is not None and (entry := self._cache.get(CACHE_KEY)) is not None:
             cached = _decode(entry.value)
             fresh = self._cache.is_fresh(entry)
+            self._age = self._cache.age(entry)
         if cached is not None and (self._offline or fresh):
+            self._note_age()
             return cached
         if self._offline:
             logger.warning("offline: no cached KEV catalog, so no CVE is marked as in KEV")
@@ -117,14 +138,18 @@ class KevFeedClient:
     def _fallback(self, stale: Catalog | None, exc: Exception) -> Catalog:
         if stale is not None:
             logger.warning("KEV download failed (%s); using the stale cached catalog", exc)
+            self._note_age()
             return stale
         logger.warning("KEV download failed (%s); no CVE is marked as in KEV", exc)
         self._issues.append(f"KEV download failed ({exc}) and no cached catalog")
         return {}
 
 
-def _encode(catalog: Catalog) -> dict[str, str]:
-    return {cve: entry.date_added.isoformat() for cve, entry in catalog.items()}
+def _encode(catalog: Catalog) -> dict[str, str | None]:
+    return {
+        cve: entry.date_added.isoformat() if entry.date_added else None
+        for cve, entry in catalog.items()
+    }
 
 
 def _decode(value: object) -> Catalog | None:

@@ -15,7 +15,7 @@ from typing import Literal
 
 from pydantic import Field, ValidationError
 
-from vulnrank.adapters._raw import RawModel, describe, read_json
+from vulnrank.adapters._raw import RawModel, describe, read_json, valid_items, valid_or_none
 from vulnrank.adapters.inputs._common import (
     CvssCandidate,
     ecosystem_from_purl,
@@ -78,10 +78,14 @@ class _Vulnerability(RawModel):
     id: str
     references: list[_Reference] = Field(default_factory=list[_Reference])
     source: _Source | None = None
-    ratings: list[_Rating] = Field(default_factory=list[_Rating])
+    ratings: list[object] = Field(default_factory=list[object])  # validated one by one
     recommendation: str | None = None
     affects: list[_Affects] = Field(default_factory=list[_Affects])
-    analysis: _Analysis | None = None
+    analysis: object | None = None
+
+    @property
+    def valid_ratings(self) -> list[_Rating]:
+        return valid_items(_Rating, self.ratings)
 
 
 class _Component(RawModel):
@@ -134,7 +138,7 @@ def parse_cyclonedx(document: object, *, default_target: str) -> ScanResult:
             "the SBOM has no vulnerabilities section; with Trivy, generate it with "
             "`--scanners vuln`"
         )
-        return ScanResult(findings=())
+        return ScanResult(findings=(), issues=("the SBOM has no vulnerabilities section",))
     target = _target_name(bom) or default_target
     components = _index_components(bom.components, "components")
     findings: list[Finding] = []
@@ -227,7 +231,9 @@ def _to_finding(
             vulnerability=Vulnerability(
                 vuln_id=_advisory_id(vulnerability),
                 severity=_severity(vulnerability),
-                cvss_score=pick_cvss(_cvss_candidates(vulnerability.ratings), vulnerability.id),
+                cvss_score=pick_cvss(
+                    _cvss_candidates(vulnerability.valid_ratings), vulnerability.id
+                ),
                 fixed_version=_fixed_version(vulnerability, component, affects),
                 analysis=_analysis(vulnerability),
             ),
@@ -239,7 +245,7 @@ def _to_finding(
 
 
 def _analysis(vulnerability: _Vulnerability) -> VexAnalysis | None:
-    analysis = vulnerability.analysis
+    analysis = valid_or_none(_Analysis, vulnerability.analysis)
     if analysis is None or not analysis.state:
         return None
     return VexAnalysis(
@@ -249,7 +255,7 @@ def _analysis(vulnerability: _Vulnerability) -> VexAnalysis | None:
 
 def _severity(vulnerability: _Vulnerability) -> Severity:
     """The rating from the vulnerability's own data source, else NVD, else the first one."""
-    rated = [rating for rating in vulnerability.ratings if rating.severity]
+    rated = [rating for rating in vulnerability.valid_ratings if rating.severity]
     primary = vulnerability.source.name if vulnerability.source else None
     for preferred in (primary, "nvd"):
         for rating in rated:

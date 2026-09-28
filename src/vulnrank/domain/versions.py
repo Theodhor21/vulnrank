@@ -10,7 +10,7 @@ make a version newer.
 
 import re
 from collections.abc import Iterable
-from functools import reduce
+from functools import cmp_to_key, reduce
 from typing import Final
 
 DPKG_ECOSYSTEMS: Final = frozenset({"deb", "debian", "ubuntu"})
@@ -43,16 +43,82 @@ def compare_versions(a: str, b: str, ecosystem: str | None) -> int:
 
 
 def fix_target(installed: str, fixed: str, ecosystem: str | None) -> str:
-    """The smallest listed fix above the installed version.
+    """The smallest upgrade that fixes one advisory (see `upgrade_target`)."""
+    return upgrade_target(installed, [fixed], ecosystem)
 
-    Trivy lists one fixed version per release branch, e.g. `"3.0.8, 3.1.2"`. Upgrading
-    3.1.0 needs 3.1.2 (its own branch), not 3.0.8 and not the highest listed.
+
+def upgrade_target(installed: str, fix_lists: Iterable[str], ecosystem: str | None) -> str:
+    """The smallest version above `installed` that fixes every advisory.
+
+    Each advisory lists one fix per release branch, e.g. `"1.82.2, 1.83.2"`: a version is fixed
+    if it is at or above the fix of its own branch (same major.minor), or above every listed
+    fix. Stable versions are preferred; a pre-release is offered only if nothing else fixes
+    everything. If no listed version is above the installed one, the newest listed is returned.
     """
-    candidates = [part.strip() for part in fixed.split(",") if part.strip()]
-    above = [c for c in candidates if compare_versions(c, installed, ecosystem) > 0]
-    if above:
-        return oldest_version(above, ecosystem)
-    return newest_version(candidates, ecosystem) if candidates else fixed.strip()
+    lists = [
+        cleaned
+        for fixed in fix_lists
+        if (cleaned := [_clean(v, installed, ecosystem) for v in _split(fixed)])
+    ]
+    if not lists:
+        return ""
+    above = {v for fixes in lists for v in fixes if compare_versions(v, installed, ecosystem) > 0}
+    candidates = sorted(above, key=cmp_to_key(lambda a, b: compare_versions(a, b, ecosystem)))
+    for allow_pre_release in (False, True):
+        for candidate in candidates:
+            if not allow_pre_release and is_pre_release(candidate, ecosystem):
+                continue
+            if all(_fixes(candidate, fixes, ecosystem) for fixes in lists):
+                return candidate
+    return newest_version((v for fixes in lists for v in fixes), ecosystem)
+
+
+def is_pre_release(version: str, ecosystem: str | None) -> bool:
+    if ecosystem in DPKG_ECOSYSTEMS:
+        return "~" in version
+    return any(token in PRE_RELEASE_RANK for token in _TOKENS.findall(_strip_v(version).lower()))
+
+
+def _split(fixed: str) -> list[str]:
+    return [part.strip() for part in fixed.split(",") if part.strip()]
+
+
+_RANGE_OPERATOR = re.compile(r"^(?:>=|<=|==|=|>|\^)\s*")
+
+
+def _clean(version: str, installed: str, ecosystem: str | None) -> str:
+    """Drop range operators (`>=4.17.19`); give Debian fixes the installed epoch if missing."""
+    version = _RANGE_OPERATOR.sub("", version)
+    if ecosystem in DPKG_ECOSYSTEMS and ":" not in version:
+        epoch, colon, _rest = installed.partition(":")
+        if colon and epoch.isdigit():
+            version = f"{epoch}:{version}"
+    return version
+
+
+def _fixes(target: str, fixes: list[str], ecosystem: str | None) -> bool:
+    if compare_versions(target, newest_version(fixes, ecosystem), ecosystem) >= 0:
+        return True
+    return any(
+        compare_versions(fix, target, ecosystem) <= 0 and _same_branch(fix, target, ecosystem)
+        for fix in fixes
+    )
+
+
+def _same_branch(a: str, b: str, ecosystem: str | None) -> bool:
+    """Same major.minor; Debian packages have one fix per release, so one branch."""
+    if ecosystem in DPKG_ECOSYSTEMS:
+        return True
+    return _branch(a) == _branch(b)
+
+
+def _branch(version: str) -> tuple[str, ...]:
+    return tuple(re.findall(r"\d+", _strip_v(version))[:2])
+
+
+def _strip_v(version: str) -> str:
+    """`v1.19.9` (Go) -> `1.19.9`"""
+    return re.sub(r"^[vV](?=\d)", "", version.strip())
 
 
 def newest_version(versions: Iterable[str], ecosystem: str | None) -> str:
@@ -62,15 +128,6 @@ def newest_version(versions: Iterable[str], ecosystem: str | None) -> str:
         return b if compare_versions(b, a, ecosystem) > 0 else a
 
     return reduce(newer, versions)
-
-
-def oldest_version(versions: Iterable[str], ecosystem: str | None) -> str:
-    """The oldest of a non-empty collection of versions."""
-
-    def older(a: str, b: str) -> str:
-        return b if compare_versions(b, a, ecosystem) < 0 else a
-
-    return reduce(older, versions)
 
 
 # --- dpkg ------------------------------------------------------------------------------------
@@ -133,7 +190,8 @@ def _number(text: str, start: int) -> tuple[int, int]:
 
 
 def _compare_generic(a: str, b: str) -> int:
-    tokens_a, tokens_b = _TOKENS.findall(a.lower()), _TOKENS.findall(b.lower())
+    tokens_a = _TOKENS.findall(_strip_v(a).lower())
+    tokens_b = _TOKENS.findall(_strip_v(b).lower())
     for token_a, token_b in zip(tokens_a, tokens_b, strict=False):
         if (difference := _compare_tokens(token_a, token_b)) != 0:
             return difference

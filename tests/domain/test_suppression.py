@@ -239,3 +239,7 @@ def test_suppressing_a_known_exploited_finding_is_flagged() -> None:
     exploited = _scored(make_finding(), in_kev=True)
     result = apply_suppressions((exploited,), rules=(_rule(vuln_id="CVE-2024-0001"),), today=TODAY)
     assert result.suppressed[0].in_kev is True
+
+
+def test_ids_that_are_not_advisory_ids_are_kept_as_written() -> None:
+    assert _rule(vuln_id=" internal risk 42 ").vuln_id == "internal risk 42"

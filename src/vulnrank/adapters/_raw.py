@@ -2,6 +2,7 @@
 
 import codecs
 import json
+from collections.abc import Iterable
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -51,3 +52,23 @@ def describe(exc: ValidationError) -> str:
         f"{'.'.join(str(part) for part in error['loc']) or '<root>'}: {error['msg']}"
         for error in exc.errors()
     )
+
+
+def valid_items[M: BaseModel](model: type[M], items: Iterable[object] | None) -> list[M]:
+    """The items that validate as `model`; invalid optional entries are simply left out.
+
+    For optional sub-fields (a CVSS entry, a rating, a related advisory): one bad entry must
+    never cost the whole finding.
+    """
+    valid: list[M] = []
+    for item in items or ():
+        try:
+            valid.append(model.model_validate(item))
+        except ValidationError:
+            continue
+    return valid
+
+
+def valid_or_none[M: BaseModel](model: type[M], item: object) -> M | None:
+    [*found] = valid_items(model, [item] if item is not None else [])
+    return found[0] if found else None

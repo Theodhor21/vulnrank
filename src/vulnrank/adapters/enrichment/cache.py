@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 Clock = Callable[[], datetime]
 DEFAULT_TTL = timedelta(hours=24)
+# Older cached EPSS/KEV data is still used (offline, or when a download fails) but reported as
+# an issue, so --strict can refuse to gate on it.
+MAX_DATA_AGE = timedelta(days=7)
 
 
 def utc_now() -> datetime:
@@ -53,7 +56,10 @@ class JsonCache:
         return CacheEntry(stored.value, stored.fetched_at) if stored else None
 
     def is_fresh(self, entry: CacheEntry) -> bool:
-        return self._clock() - entry.fetched_at < self._ttl
+        return self.age(entry) < self._ttl
+
+    def age(self, entry: CacheEntry) -> timedelta:
+        return self._clock() - entry.fetched_at
 
     def put_many(self, values: Mapping[str, object]) -> None:
         if not values:

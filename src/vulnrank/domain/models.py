@@ -19,7 +19,7 @@ def _normalise_cve_id(value: str) -> str:
     return normalised
 
 
-def _normalise_advisory_id(value: str) -> str:
+def normalise_advisory_id(value: str) -> str:
     """CVE IDs are validated strictly; other IDs keep their case after an upper-case prefix."""
     stripped = value.strip()
     prefix, dash, rest = stripped.partition("-")
@@ -32,7 +32,7 @@ def _normalise_advisory_id(value: str) -> str:
 
 
 CveId = Annotated[str, AfterValidator(_normalise_cve_id)]
-AdvisoryId = Annotated[str, AfterValidator(_normalise_advisory_id)]
+AdvisoryId = Annotated[str, AfterValidator(normalise_advisory_id)]
 Probability = Annotated[float, Field(ge=0.0, le=1.0)]
 CvssScore = Annotated[float, Field(ge=0.0, le=10.0)]
 NonEmptyStr = Annotated[str, Field(min_length=1)]
@@ -146,6 +146,7 @@ class ScanResult(DomainModel):
 
     findings: tuple[Finding, ...]
     skipped: int = 0
+    issues: tuple[str, ...] = ()  # problems with the input as a whole, e.g. no vulnerability data
 
 
 class Asset(DomainModel):
@@ -161,7 +162,7 @@ class EpssScore(DomainModel):
 
 class KevEntry(DomainModel):
     cve_id: CveId
-    date_added: date
+    date_added: date | None = None  # a bad date in the feed must not cost the KEV status
 
 
 class Enrichment(DomainModel):
@@ -228,6 +229,7 @@ class Report(DomainModel):
     duplicates_removed: int
     skipped: int = 0
     enrichment_issues: tuple[str, ...] = ()
+    input_issues: tuple[str, ...] = ()
     suppressed: tuple[Suppressed, ...] = ()
     baseline_resolved: int | None = None  # None: no baseline was given
 

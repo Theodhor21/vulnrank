@@ -4,9 +4,9 @@ Teams file tickets per upgrade, not per CVE. Findings with a fixed version are g
 package (target, ecosystem, name, installed version). Packages from one source that need
 exactly the same fixes, such as Debian's `openssl` and `libssl1.1`, become one action.
 
-Each finding needs the smallest listed fix above its installed version (Trivy may list one
-per release branch); an action targets the highest of those, compared with the ecosystem's
-version rules (see `versions`).
+An action targets the smallest version that fixes every advisory of the package, respecting
+release branches (Trivy lists one fix per branch) and the ecosystem's version rules (see
+`versions`).
 """
 
 import math
@@ -15,7 +15,7 @@ from collections.abc import Iterable
 
 from vulnrank.domain.models import DomainModel, FixStatus, Priority, ScoredFinding
 from vulnrank.domain.scoring import rank
-from vulnrank.domain.versions import fix_target, newest_version
+from vulnrank.domain.versions import upgrade_target
 
 NOT_YET_FIXED = "not yet fixed"
 NO_FIX_STATUS = {
@@ -103,17 +103,15 @@ def _action(group: list[ScoredFinding]) -> FixAction:
     first = ranked[0].finding
     ecosystem = first.component.ecosystem
     installed = first.component.version
-    needed = {
-        fix_target(installed, s.finding.vulnerability.fixed_version or "", ecosystem)
-        for s in ranked
-    }
     vuln_ids = tuple(dict.fromkeys(s.finding.vulnerability.vuln_id for s in ranked))
     return FixAction(
         target=first.target,
         ecosystem=ecosystem,
         packages=tuple(sorted({s.finding.component.name for s in ranked})),
         installed_version=installed,
-        fixed_version=newest_version(needed, ecosystem),
+        fixed_version=upgrade_target(
+            installed, (s.finding.vulnerability.fixed_version or "" for s in ranked), ecosystem
+        ),
         findings=ranked,
         priority=ranked[0].priority,
         vuln_ids=vuln_ids,

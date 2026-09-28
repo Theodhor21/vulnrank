@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 from typing import TextIO
+from urllib.parse import quote
 
 from vulnrank import __version__
 from vulnrank.adapters.outputs import _format as fmt
@@ -82,7 +83,7 @@ class SarifReporter:
     ) -> dict[str, object]:
         finding = scored.finding
         cve = finding.vulnerability.vuln_id
-        uri = self._artifact_uri or artifact_uri_for(finding.target)
+        uri = quote(self._artifact_uri or artifact_uri_for(finding.target), safe="/")
         result: dict[str, object] = {
             "ruleId": cve,
             "ruleIndex": rule_index[cve],

@@ -19,7 +19,7 @@ from pydantic import ValidationError
 
 from vulnrank.adapters._raw import RawModel, decode_text, describe
 from vulnrank.adapters.enrichment._http import Sleep, get_json
-from vulnrank.adapters.enrichment.cache import JsonCache
+from vulnrank.adapters.enrichment.cache import MAX_DATA_AGE, CacheEntry, JsonCache
 from vulnrank.domain.models import EpssScore
 from vulnrank.ports.sources import SourceError
 
@@ -57,14 +57,26 @@ def batch_by_length(
     return batches
 
 
+SHOWN_ROW_WARNINGS = 5
+
+
 def parse_rows(rows: Iterable[object], where: str) -> dict[str, EpssScore]:
+    """Valid rows; the first few malformed ones are logged, the rest counted."""
     scores: dict[str, EpssScore] = {}
+    malformed = 0
     for index, raw in enumerate(rows):
         try:
             row = _Row.model_validate(raw)
             scores[row.cve.upper()] = EpssScore(score=row.epss, percentile=row.percentile)
         except ValidationError as exc:
-            logger.warning("skipping malformed EPSS row %s[%d]: %s", where, index, describe(exc))
+            malformed += 1
+            if malformed <= SHOWN_ROW_WARNINGS:
+                logger.warning(
+                    "skipping malformed EPSS row %s[%d]: %s", where, index, describe(exc)
+                )
+    if malformed > SHOWN_ROW_WARNINGS:
+        hidden = malformed - SHOWN_ROW_WARNINGS
+        logger.warning("... and %d more malformed EPSS rows in %s", hidden, where)
     return scores
 
 
@@ -90,6 +102,7 @@ class EpssApiClient:
         self._url = url
         self._sleep = sleep
         self._issues: list[str] = []
+        self._old: dict[str, int] = {}  # CVE -> age in days of cached data served for it
 
     def scores(self, cve_ids: Collection[str]) -> Mapping[str, EpssScore]:
         cached, missing = self._from_cache(sorted(set(cve_ids)))
@@ -103,7 +116,16 @@ class EpssApiClient:
         return {**cached, **self._fetch_all(missing)}
 
     def issues(self) -> tuple[str, ...]:
-        return tuple(self._issues)
+        old = []
+        if self._old:
+            days = max(self._old.values())
+            old = [f"EPSS data for {len(self._old)} CVE(s) is {days} days old"]
+        return (*self._issues, *old)
+
+    def _note_age(self, cve: str, entry: CacheEntry) -> None:
+        assert self._cache is not None  # only called for entries read from the cache
+        if (age := self._cache.age(entry)) > MAX_DATA_AGE:
+            self._old[cve] = age.days
 
     def _from_cache(self, cve_ids: list[str]) -> tuple[dict[str, EpssScore], list[str]]:
         """Split into usable cached scores and CVEs that still need a lookup."""
@@ -115,12 +137,15 @@ class EpssApiClient:
             entry = self._cache.get(cve)
             if entry is None or not (self._offline or self._cache.is_fresh(entry)):
                 missing.append(cve)
-            elif entry.value is None:
+                continue
+            self._note_age(cve, entry)
+            if entry.value is None:
                 continue  # looked up before: FIRST has no score for this CVE
             elif (score := _decode(entry.value)) is not None:
                 found[cve] = score
             else:
                 missing.append(cve)  # corrupt entry: look it up again
+                self._old.pop(cve, None)
         return found, missing
 
     def _fetch_all(self, cve_ids: list[str]) -> dict[str, EpssScore]:
@@ -160,7 +185,10 @@ class EpssApiClient:
         stale: dict[str, EpssScore] = {}
         for cve in batch:
             entry = self._cache.get(cve) if self._cache else None
-            if entry is not None and (score := _decode(entry.value)) is not None:
+            if entry is None:
+                continue
+            self._note_age(cve, entry)
+            if (score := _decode(entry.value)) is not None:
                 stale[cve] = score
         if stale:
             logger.warning("using stale cached EPSS scores for %d CVE(s)", len(stale))

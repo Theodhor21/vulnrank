@@ -88,8 +88,14 @@ def main(
         OutputFormat, typer.Option("--format", "-f", help="Output format.")
     ] = OutputFormat.TABLE,
     top: Annotated[
-        int, typer.Option(min=0, help="List at most N findings or upgrades (0 = all).")
-    ] = 20,
+        int | None,
+        typer.Option(
+            min=0,
+            help="List at most N findings or upgrades (0 = all). "
+            "Default: 20 for table and Markdown, all for JSON and SARIF.",
+            show_default=False,
+        ),
+    ] = None,
     view: Annotated[
         View,
         typer.Option(help="List findings, or upgrades grouped by fix (table and Markdown)."),
@@ -176,7 +182,7 @@ def main(
                 baseline=previous,
             )
         reporter = REPORTERS[output_format](view is View.FIXES, sarif_uri)
-        _write(report, reporter, limit=top or None, output=output)
+        _write(report, reporter, limit=_limit(top, output_format), output=output)
     except (ConfigError, SourceError, OSError) as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(EXIT_ERROR) from exc
@@ -185,11 +191,34 @@ def main(
         logger.info("unexpected error", exc_info=True)
         typer.echo(f"internal error: {exc} (run with --verbose for details)", err=True)
         raise typer.Exit(EXIT_ERROR) from exc
-    if strict and report.enrichment_issues:
-        typer.echo(f"error: enrichment incomplete: {'; '.join(report.enrichment_issues)}", err=True)
+    if strict and (problems := _strict_problems(report)):
+        typer.echo(f"error: --strict: {'; '.join(problems)}", err=True)
         raise typer.Exit(EXIT_ERROR)
     if fail_on is not None and report.has_findings_at_or_above(fail_on):
         raise typer.Exit(EXIT_FINDINGS)
+
+
+HUMAN_FORMATS_TOP = 20
+
+
+def _limit(top: int | None, output_format: OutputFormat) -> int | None:
+    """Machine formats list everything by default: a partial SARIF upload would make GitHub
+    close the missing alerts as fixed, and a partial JSON report is a poor baseline."""
+    if top is None:
+        human = output_format in (OutputFormat.TABLE, OutputFormat.MARKDOWN)
+        return HUMAN_FORMATS_TOP if human else None
+    return top or None
+
+
+def _strict_problems(report: Report) -> list[str]:
+    """Anything that makes the gate's verdict unreliable."""
+    problems = list(report.input_issues)
+    if report.enrichment_issues:
+        problems.append("enrichment incomplete: " + "; ".join(report.enrichment_issues))
+    if report.skipped:
+        records = "record was" if report.skipped == 1 else "records were"
+        problems.append(f"{report.skipped} malformed {records} skipped")
+    return problems
 
 
 def _asset_lookup(config: Config) -> AssetLookup:

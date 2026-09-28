@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pydantic import Field, ValidationError
 
-from vulnrank.adapters._raw import RawModel, describe, read_json
+from vulnrank.adapters._raw import RawModel, describe, read_json, valid_or_none
 from vulnrank.adapters.inputs._common import (
     CvssCandidate,
     ecosystem_from_purl,
@@ -34,7 +34,7 @@ class _Vulnerability(RawModel):
     fixed_version: str | None = Field(default=None, alias="FixedVersion")
     severity: str | None = Field(default=None, alias="Severity")
     pkg_identifier: _PkgIdentifier | None = Field(default=None, alias="PkgIdentifier")
-    cvss: dict[str, _Cvss] | None = Field(default=None, alias="CVSS")
+    cvss: dict[str, object] | None = Field(default=None, alias="CVSS")  # validated per source
     status: str | None = Field(default=None, alias="Status")
 
 
@@ -126,9 +126,13 @@ def _fix_status(value: str | None) -> FixStatus | None:
         return None
 
 
-def _cvss_candidates(cvss: dict[str, _Cvss]) -> list[CvssCandidate]:
+def _cvss_candidates(cvss: dict[str, object]) -> list[CvssCandidate]:
+    """One broken source entry is left out; it never costs the finding."""
     candidates: list[CvssCandidate] = []
-    for source, scores in cvss.items():
+    for source, raw in cvss.items():
+        scores = valid_or_none(_Cvss, raw)
+        if scores is None:
+            continue
         if scores.v3_score is not None:
             candidates.append(CvssCandidate(source, 3, scores.v3_score))
         if scores.v40_score is not None:
