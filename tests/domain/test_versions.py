@@ -2,7 +2,7 @@
 
 import pytest
 
-from vulnrank.domain.versions import compare_versions, fix_target
+from vulnrank.domain.versions import compare_versions, fix_target, upgrade_target
 
 
 @pytest.mark.parametrize(
@@ -65,3 +65,60 @@ def test_fix_target_picks_the_smallest_upgrade(
     installed: str, fixed: str, ecosystem: str, expected: str
 ) -> None:
     assert fix_target(installed, fixed, ecosystem) == expected
+
+
+# --- The upgrade that fixes every listed CVE --------------------------------------------------
+
+GRPC_FIXES = [  # etcd v3.5.9, google.golang.org/grpc v1.41.0 (real Trivy output)
+    "1.79.3",
+    "1.83.1",
+    "1.82.2, 1.83.2, 1.84.0-dev.0.20260825144003-d5a41119e0e3, "
+    "1.85.0-dev.0.20260825072537-93e31b48545e",
+    "1.82.1",
+    "1.56.3, 1.57.1, 1.58.3",
+    "1.83.1",
+]
+
+
+@pytest.mark.parametrize(
+    ("installed", "fix_lists", "ecosystem", "expected"),
+    [
+        # 1.83.1 is the highest single pick, but CVE-2026-84445 is fixed on 1.83.x only in 1.83.2.
+        pytest.param("v1.41.0", GRPC_FIXES, "golang", "1.83.2", id="grpc-every-cve-fixed"),
+        pytest.param(
+            "v1.19.9",
+            [
+                "1.25.13, 1.26.6, 1.27.0-rc.3",
+                "1.24.13, 1.25.7, 1.26.0-rc.3",
+                "1.21.11, 1.22.4",
+                "1.19.10, 1.20.5",
+            ],
+            "golang",
+            "1.25.13",
+            id="go-stdlib-branches",
+        ),
+        # A `v` prefix must not make the installed version older than every fix (a downgrade).
+        pytest.param("v1.21.0", ["1.21.5, 1.20.12"], "golang", "1.21.5", id="go-v-prefix"),
+        # Only a pre-release fixes it: better than nothing, so it is still offered.
+        pytest.param("1.0.0", ["1.1.0-rc.1"], "npm", "1.1.0-rc.1", id="pre-release-only"),
+        # Version ranges leak into FixedVersion: `>=4.17.19` means 4.17.19.
+        pytest.param("4.17.15", [">=4.17.19", "4.17.21"], "npm", "4.17.21", id="range-operator"),
+        # Trivy drops the Debian epoch from fixed versions; the installed epoch still applies.
+        pytest.param(
+            "1:2.33.1-0.1",
+            ["2.33.1-0.1+deb10u1"],
+            "deb",
+            "1:2.33.1-0.1+deb10u1",
+            id="deb-epoch-inherited",
+        ),
+    ],
+)
+def test_upgrade_target_fixes_every_cve(
+    installed: str, fix_lists: list[str], ecosystem: str, expected: str
+) -> None:
+    assert upgrade_target(installed, fix_lists, ecosystem) == expected
+
+
+@pytest.mark.parametrize(("a", "b"), [("v1.2.0", "1.2.0"), ("V2", "2")])
+def test_a_leading_v_is_ignored(a: str, b: str) -> None:
+    assert compare_versions(a, b, "golang") == 0

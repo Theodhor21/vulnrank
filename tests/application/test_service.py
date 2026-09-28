@@ -210,3 +210,14 @@ def test_a_baseline_marks_changes_and_counts_resolved(caplog: pytest.LogCaptureF
     assert scored.change.state is ChangeState.UNCHANGED
     assert report.baseline_resolved == 1
     assert "baseline does not list every finding" in caplog.text
+
+
+def test_input_issues_are_reported() -> None:
+    class SourceWithIssue(ListSource):
+        def load(self) -> ScanResult:
+            return ScanResult(findings=(), issues=("the SBOM has no vulnerabilities section",))
+
+    report = prioritise(
+        SourceWithIssue([]), NoEpss(), NoKev(), asset_for=_assets, policy=ScoringPolicy()
+    )
+    assert report.input_issues == ("the SBOM has no vulnerabilities section",)

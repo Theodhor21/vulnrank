@@ -1,6 +1,7 @@
 import gzip
 import json
 import logging
+from datetime import timedelta
 from pathlib import Path
 
 import httpx
@@ -309,3 +310,45 @@ def test_csv_with_valid_rows_has_no_issues() -> None:
     source = EpssCsvFile(FIXTURES / "scores.csv")
     source.scores(CVES)
     assert source.issues() == ()
+
+
+# --- Stale data is an issue, even offline --------------------------------------------------------
+
+
+def test_offline_data_older_than_a_week_is_an_issue(
+    api: respx.Route, cache: JsonCache, clock: FakeClock
+) -> None:
+    api.mock(return_value=_ok())
+    _client(cache).scores(CVES)
+    clock.advance(timedelta(days=6))
+    recent = _client(cache, offline=True)
+    recent.scores(CVES)
+    assert recent.issues() == ()
+    clock.advance(timedelta(days=2))
+    old = _client(cache, offline=True)
+    old.scores(CVES)
+    assert old.issues() == ("EPSS data for 3 CVE(s) is 8 days old",)
+
+
+def test_a_stale_fallback_older_than_a_week_is_an_issue(
+    api: respx.Route, cache: JsonCache, clock: FakeClock
+) -> None:
+    api.mock(side_effect=[_ok(), httpx.Response(503)])
+    _client(cache).scores(CVES)
+    clock.advance(timedelta(days=10))
+    client = _client(cache)
+    assert client.scores(CVES) == EXPECTED
+    assert client.issues() == ("EPSS data for 3 CVE(s) is 10 days old",)
+
+
+def test_a_flood_of_malformed_rows_is_summarised(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """E.g. the KEV CSV passed as --epss-file: a few examples, then a count."""
+    path = tmp_path / "wrong.csv"
+    rows = "\n".join(f"CVE-2023-{n:04d},ExampleVendor" for n in range(50))
+    path.write_text(f"cve,epss\n{rows}\n", encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="vulnrank"):
+        EpssCsvFile(path).scores(CVES)
+    assert len(caplog.records) == 6
+    assert "and 45 more malformed EPSS rows" in caplog.records[-1].getMessage()

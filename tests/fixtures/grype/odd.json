@@ -1,0 +1,42 @@
+{
+  "matches": [
+    {
+      "vulnerability": {
+        "id": "CVE-2019-17543",
+        "severity": "High",
+        "cvss": [],
+        "fix": { "versions": [], "state": "wont-fix" }
+      },
+      "relatedVulnerabilities": [
+        {
+          "id": "CVE-2019-17543",
+          "cvss": [
+            { "source": "nvd@nist.gov", "version": "3.1", "metrics": { "baseScore": 8.1 } }
+          ]
+        }
+      ],
+      "artifact": { "name": "liblz4-1", "version": "1.8.3-1", "type": "deb" }
+    },
+    {
+      "vulnerability": {
+        "id": "CVE-2024-0002",
+        "cvss": [
+          { "source": "nvd@nist.gov", "version": "3.1", "metrics": { "baseScore": null } },
+          { "source": "nvd@nist.gov", "version": "3.1" },
+          "not an object",
+          { "source": "other", "version": "3.1", "metrics": { "baseScore": 6.5 } }
+        ],
+        "fix": null
+      },
+      "relatedVulnerabilities": null,
+      "artifact": { "name": "b", "version": "1" }
+    },
+    {
+      "vulnerability": { "id": "CVE-2024-0003", "cvss": null },
+      "relatedVulnerabilities": [{ "cvss": "broken" }],
+      "artifact": { "name": "c", "version": "1" }
+    }
+  ],
+  "source": { "type": "image", "target": { "userInput": "odd:1.0" } },
+  "descriptor": { "name": "grype" }
+}

@@ -257,3 +257,9 @@ def test_baseline_state_follows_the_change() -> None:
 
 def test_no_baseline_state_without_a_baseline() -> None:
     assert "baselineState" not in _run(_sarif())["results"][0]
+
+
+def test_a_custom_uri_is_percent_encoded() -> None:
+    results = _run(_sarif(uri="my docs/Docker file#1"))["results"]
+    uri = results[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+    assert uri == "my%20docs/Docker%20file%231"

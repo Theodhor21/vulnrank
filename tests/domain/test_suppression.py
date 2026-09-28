@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -8,6 +8,7 @@ from vulnrank.domain.policy import ScoringPolicy
 from vulnrank.domain.scoring import score
 from vulnrank.domain.suppression import (
     IgnoreRule,
+    VexProduct,
     VexStatement,
     VexStatus,
     apply_suppressions,
@@ -157,6 +158,45 @@ def test_vex_reason(status: VexStatus, justification: str | None, reason: str) -
     statement = _statement(status=status, justification=justification)
     result = apply_suppressions((A,), statements=(statement,), today=TODAY)
     assert result.suppressed[0].reason == reason
+
+
+# --- VEX scope, precedence and ID case --------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("image", "expected"),
+    [
+        pytest.param("pkg:oci/app", [("CVE-2024-0001", "openssl")], id="this-image"),
+        pytest.param("pkg:oci/other-app", [], id="another-image"),
+    ],
+)
+def test_subcomponents_are_scoped_to_their_image(
+    image: str, expected: list[tuple[str, str]]
+) -> None:
+    """A statement about libwebp in other-app must not suppress libwebp in nginx."""
+    product = VexProduct(purl=image, subcomponents=("pkg:deb/debian/openssl",))
+    assert _suppressed_ids(statements=(_statement(products=(product,)),)) == expected
+
+
+def test_the_latest_statement_wins() -> None:
+    older = _statement(timestamp=datetime(2026, 1, 1, tzinfo=UTC))
+    newer = _statement(status="affected", timestamp=datetime(2026, 6, 1, tzinfo=UTC))
+    assert _suppressed_ids(statements=(older, newer)) == []
+    assert _suppressed_ids(statements=(newer, older)) == []
+    reverse = older.model_copy(update={"timestamp": datetime(2026, 7, 1, tzinfo=UTC)})
+    assert len(_suppressed_ids(statements=(newer, reverse))) == 2
+
+
+def test_without_timestamps_the_later_statement_wins() -> None:
+    first = _statement()
+    second = _statement(status="under_investigation")
+    assert _suppressed_ids(statements=(first, second)) == []
+    assert len(_suppressed_ids(statements=(second, first))) == 2
+
+
+def test_ids_match_regardless_of_case() -> None:
+    assert len(_suppressed_ids(statements=(_statement(vuln_ids=("cve-2024-0001",)),))) == 2
+    assert len(_suppressed_ids(rules=(_rule(vuln_id="cve-2024-0002"),))) == 1
 
 
 # --- Statements inside the scan ------------------------------------------------------------------

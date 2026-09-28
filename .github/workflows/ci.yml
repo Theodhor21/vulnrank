@@ -64,3 +64,14 @@ jobs:
 
       - name: The gate failed, as it should (CVE-2023-0001 is in KEV)
         run: test "${{ steps.gate.outcome }}" = "failure"
+
+      - name: Prepare a path with a space
+        run: cp examples/assets.toml "my assets.toml"
+
+      - name: Quoted options keep their spaces
+        uses: ./
+        with:
+          scan: tests/fixtures/trivy/basic.json
+          args: >-
+            --assets "my assets.toml" --offline --epss-file tests/fixtures/epss/scores.csv
+            --kev-file tests/fixtures/kev/feed.json --quiet

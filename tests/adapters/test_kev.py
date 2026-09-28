@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import httpx
@@ -27,6 +27,11 @@ EXPECTED = {
     "CVE-2023-0001": KevEntry(cve_id="CVE-2023-0001", date_added=date(2024, 1, 10)),
     "CVE-2023-0005": KevEntry(cve_id="CVE-2023-0005", date_added=date(2025, 6, 2)),
 }
+CATALOG = {
+    **EXPECTED,
+    # A bad dateAdded must not cost a CVE its KEV status.
+    "CVE-2023-0006": KevEntry(cve_id="CVE-2023-0006", date_added=None),
+}
 
 
 @pytest.fixture
@@ -46,13 +51,13 @@ def _client(cache: JsonCache | None = None, *, offline: bool = False) -> KevFeed
 # --- Parsing -------------------------------------------------------------------------------
 
 
-def test_feed_is_parsed_and_malformed_entries_are_skipped(
+def test_feed_is_parsed_and_a_bad_date_keeps_the_entry(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     with caplog.at_level(logging.WARNING, logger="vulnrank"):
         catalog = parse_feed(FEED)
-    assert catalog == EXPECTED
-    assert "malformed KEV entry vulnerabilities[2]" in caplog.text
+    assert catalog == CATALOG
+    assert "KEV entry vulnerabilities[2] (CVE-2023-0006) has an invalid dateAdded" in caplog.text
 
 
 def test_a_document_that_is_not_a_feed_is_rejected() -> None:
@@ -199,3 +204,22 @@ def test_local_file_that_is_not_a_feed_is_a_source_error(tmp_path: Path) -> None
 def test_missing_local_file_is_a_source_error(tmp_path: Path) -> None:
     with pytest.raises(SourceError, match="cannot read"):
         KevJsonFile(tmp_path / "nope.json").lookup(CVES)
+
+
+def test_an_entry_without_a_cve_id_is_skipped(caplog: pytest.LogCaptureFixture) -> None:
+    feed = {"vulnerabilities": [{"dateAdded": "2024-01-01"}, {"cveID": "CVE-2024-0001"}]}
+    with caplog.at_level(logging.WARNING, logger="vulnrank"):
+        catalog = parse_feed(feed)
+    assert list(catalog) == ["CVE-2024-0001"]
+    assert "vulnerabilities[0]" in caplog.text
+
+
+def test_an_offline_catalog_older_than_a_week_is_an_issue(
+    feed: respx.Route, cache: JsonCache, clock: FakeClock
+) -> None:
+    feed.mock(return_value=httpx.Response(200, json=FEED))
+    _client(cache).lookup(CVES)
+    clock.advance(timedelta(days=8))
+    client = _client(cache, offline=True)
+    assert client.lookup(CVES) == EXPECTED
+    assert client.issues() == ("the KEV catalog is 8 days old",)

@@ -450,3 +450,52 @@ def test_a_grype_report_gives_the_same_ranking_as_trivy() -> None:
     from_trivy = _json(str(TRIVY), *ASSETS, *LOCAL_INTEL)
     from_grype = _json(str(FIXTURES / "grype" / "basic.json"), *ASSETS, *LOCAL_INTEL)
     assert from_grype["findings"] == from_trivy["findings"]
+
+
+# --- Strict mode covers input problems too ------------------------------------------------------
+
+
+def test_strict_fails_on_skipped_records() -> None:
+    scan = str(FIXTURES / "trivy" / "malformed.json")
+    result = _run(scan, *LOCAL_INTEL, "--strict")
+    assert result.exit_code == EXIT_ERROR
+    assert "4 malformed records were skipped" in _plain(result.stderr)
+
+
+def test_strict_fails_on_an_sbom_without_vulnerabilities(tmp_path: Path) -> None:
+    sbom = tmp_path / "sbom.json"
+    sbom.write_text('{"bomFormat": "CycloneDX", "components": []}', encoding="utf-8")
+    result = _run(str(sbom), *LOCAL_INTEL, "--strict", "--fail-on", "P4")
+    assert result.exit_code == EXIT_ERROR
+    assert "the SBOM has no vulnerabilities section" in _plain(result.stderr)
+
+
+# --- Safe defaults for machine formats ----------------------------------------------------------
+
+
+def _big_scan(tmp_path: Path, count: int = 25) -> Path:
+    records = [
+        {"VulnerabilityID": f"CVE-2024-{n:04d}", "PkgName": f"pkg{n}", "InstalledVersion": "1"}
+        for n in range(1, count + 1)
+    ]
+    document = {
+        "SchemaVersion": 2,
+        "ArtifactName": "big:1.0",
+        "Results": [{"Target": "x", "Vulnerabilities": records}],
+    }
+    path = tmp_path / "big.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return path
+
+
+def test_sarif_and_json_list_every_finding_by_default(tmp_path: Path) -> None:
+    """A partial SARIF upload would make GitHub close the missing alerts as fixed."""
+    scan = str(_big_scan(tmp_path))
+    sarif = json.loads(_run(scan, *LOCAL_INTEL, "--format", "sarif").stdout)
+    assert len(sarif["runs"][0]["results"]) == 25
+    assert len(_json(scan, *LOCAL_INTEL)["findings"]) == 25
+
+
+def test_human_readable_formats_list_the_top_20_by_default(tmp_path: Path) -> None:
+    result = _run(str(_big_scan(tmp_path)), *LOCAL_INTEL)
+    assert "Showing the top 20 of 25" in _plain(result.stdout)

@@ -164,6 +164,11 @@ def test_sbom_without_vulnerabilities_explains_how_to_get_them(
     assert "--scanners vuln" in caplog.text
 
 
+def test_an_sbom_without_vulnerabilities_is_an_input_issue() -> None:
+    result = parse_cyclonedx({"bomFormat": "CycloneDX", "components": []}, default_target="x")
+    assert result.issues == ("the SBOM has no vulnerabilities section",)
+
+
 def test_file_name_is_the_target_without_metadata() -> None:
     [finding] = parse_cyclonedx(_bom({}), default_target="sbom.json").findings
     assert finding.target == "sbom.json"
@@ -192,3 +197,18 @@ def test_vex_analysis_in_the_sbom_is_read() -> None:
     assert finding.vulnerability.analysis is not None
     assert finding.vulnerability.analysis.state == "not_affected"
     assert finding.vulnerability.analysis.justification == "code_not_reachable"
+
+
+def test_bad_optional_fields_never_drop_the_finding() -> None:
+    vulnerability = {
+        "analysis": "not an object",
+        "ratings": [
+            {"source": {"name": "nvd"}, "score": "high", "method": "CVSSv31"},
+            {"source": {"name": "ghsa"}, "score": 5.0, "method": "CVSSv31"},
+        ],
+    }
+    result = parse_cyclonedx(_bom(vulnerability), default_target="x")
+    assert (len(result.findings), result.skipped) == (1, 0)
+    [finding] = result.findings
+    assert finding.vulnerability.analysis is None
+    assert finding.vulnerability.cvss_score == 5.0

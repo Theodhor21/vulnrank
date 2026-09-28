@@ -177,3 +177,17 @@ def test_invalid_json_is_a_source_error(tmp_path: Path) -> None:
 def test_missing_file_is_a_source_error(tmp_path: Path) -> None:
     with pytest.raises(SourceError, match="cannot read"):
         TrivyJsonSource(tmp_path / "missing.json").load()
+
+
+@pytest.mark.parametrize(
+    "cvss",
+    [{"nvd": None}, {"nvd": {"V3Score": "high"}}, {"nvd": "broken"}],
+    ids=["null-source", "string-score", "not-an-object"],
+)
+def test_a_broken_cvss_entry_never_drops_the_finding(cvss: object) -> None:
+    record = {"VulnerabilityID": "CVE-2024-0001", "PkgName": "a", "InstalledVersion": "1"}
+    record["CVSS"] = cvss  # pyright: ignore[reportArgumentType]
+    document = {"SchemaVersion": 2, "Results": [{"Target": "x", "Vulnerabilities": [record]}]}
+    result = parse_trivy_report(document, default_target="x")
+    assert (len(result.findings), result.skipped) == (1, 0)
+    assert result.findings[0].vulnerability.cvss_score is None

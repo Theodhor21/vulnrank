@@ -201,3 +201,19 @@ def test_unfixable_findings_are_counted_by_vendor_status() -> None:
         "deferred": 1,
         "end-of-life": 1,
     }
+
+
+def test_the_upgrade_fixes_every_cve_of_the_package() -> None:
+    """Real etcd case: the plan said grpc 1.83.1, which leaves CVE-2026-84445 open."""
+    lists = {
+        "CVE-2026-84304": "1.83.1",
+        "CVE-2026-84445": "1.82.2, 1.83.2, 1.84.0-dev.0.20260825144003-d5a41119e0e3",
+        "CVE-2026-33186": "1.79.3",
+    }
+    plan = plan_fixes(
+        [
+            _finding(cve, "google.golang.org/grpc", fix, version="v1.41.0", ecosystem="golang")
+            for cve, fix in lists.items()
+        ]
+    )
+    assert plan.actions[0].fixed_version == "1.83.2"

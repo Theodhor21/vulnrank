@@ -81,3 +81,19 @@ def test_cvss_v2_scores_are_ignored() -> None:
     document = {"matches": [match], "descriptor": {"name": "grype"}}
     [finding] = parse_grype_report(document, default_target="x").findings
     assert finding.vulnerability.cvss_score is None
+
+
+def test_bad_optional_fields_never_drop_a_match() -> None:
+    """One broken CVSS entry, a null fix or null related list must not cost the finding."""
+    result = GrypeJsonSource(FIXTURES / "odd.json").load()
+    assert result.skipped == 0
+    assert [f.vulnerability.vuln_id for f in result.findings] == [
+        "CVE-2019-17543",
+        "CVE-2024-0002",
+        "CVE-2024-0003",
+    ]
+    lz4, second, third = result.findings
+    assert lz4.vulnerability.cvss_score == 8.1  # NVD score listed under the related CVE
+    assert second.vulnerability.cvss_score == 6.5  # the only valid entry
+    assert second.vulnerability.fixed_version is None
+    assert third.vulnerability.cvss_score is None
